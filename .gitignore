@@ -1,0 +1,17 @@
+# Backend
+/backend/bin/
+*.test
+
+# Frontend
+/frontend/node_modules/
+/frontend/dist/
+/frontend/node_modules/.tmp/
+
+# Env / secrets
+.env
+*.local
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

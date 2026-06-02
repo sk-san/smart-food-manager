@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-foodapp}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      # Migrations in this folder run automatically on first DB init.
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-foodapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer:4
+    ports:
+      - "8081:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Optional: run the whole app in containers with `docker compose --profile app up`.
+  backend:
+    profiles: ["app"]
+    build: ./backend
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-foodapp}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      ALLOWED_ORIGIN: http://localhost:5173
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    profiles: ["app"]
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:
