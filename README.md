@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# smart-food-manager
-=======
 # Food / Nutrition / Food-Loss — Monorepo
 
 A single repository holding the **Go** backend API and the **React + TypeScript** frontend for the food / nutrition / food-loss app. Postgres is the database; auth is JWT with role-based access control (RBAC).
