@@ -5,7 +5,7 @@ SHELL := /bin/bash
 POSTGRES_USER ?= app
 POSTGRES_DB   ?= foodapp
 
-.PHONY: help db-up db-down migrate backend frontend tidy install build clean
+.PHONY: help db-up db-down migrate backend frontend tidy install build clean obs-up obs-down
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -38,6 +38,12 @@ install: ## Install frontend dependencies
 build: ## Build backend binary and frontend bundle
 	cd backend && CGO_ENABLED=0 go build -o bin/api ./cmd/api
 	cd frontend && npm run build
+
+obs-up: ## Start the LGTM observability stack (Grafana :3000, Prometheus :9090)
+	docker compose --profile monitoring up -d
+
+obs-down: ## Stop the LGTM observability stack and remove its volumes
+	docker compose --profile monitoring down -v
 
 clean: ## Remove build artifacts
 	rm -rf backend/bin frontend/dist

@@ -33,6 +33,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-foodapp}?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       ALLOWED_ORIGIN: http://localhost:5173
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
     ports:
       - "8080:8080"
     depends_on:
@@ -47,5 +49,85 @@ services:
     depends_on:
       - backend
 
+  # ── Observability stack ────────────────────────────────────────────────────
+  # Start with: docker compose --profile monitoring up -d
+  # Grafana UI:   http://localhost:3000
+  # Prometheus:   http://localhost:9090
+  # Tempo:        http://localhost:3200
+  # Loki:         http://localhost:3100
+
+  otel-collector:
+    profiles: ["monitoring"]
+    image: otel/opentelemetry-collector-contrib:0.103.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC (app → collector)
+      - "4318:4318"   # OTLP HTTP (app → collector)
+      - "8889:8889"   # Prometheus metrics endpoint (scraped by Prometheus)
+      - "13133:13133" # Health check
+    depends_on:
+      - tempo
+      - loki
+
+  tempo:
+    profiles: ["monitoring"]
+    image: grafana/tempo:2.5.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP API (Grafana datasource)
+
+  loki:
+    profiles: ["monitoring"]
+    image: grafana/loki:3.0.0
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"   # Loki HTTP API (Grafana datasource)
+
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v2.53.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --enable-feature=remote-write-receiver    # needed for Tempo metrics generator
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"   # Prometheus UI
+    depends_on:
+      - otel-collector
+
+  grafana:
+    profiles: ["monitoring"]
+    image: grafana/grafana:11.0.0
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"   # Grafana UI
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
 volumes:
   db_data:
+  tempo_data:
+  prometheus_data:
+  loki_data:
+  grafana_data:
