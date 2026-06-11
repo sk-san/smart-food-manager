@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/example/food-app/backend/internal/config"
 	"github.com/example/food-app/backend/internal/handler"
@@ -19,6 +20,7 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	// Cross-cutting middleware.
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
+	r.Use(otelhttp.NewMiddleware("food-app"))
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
 	r.Use(cors(cfg.AllowedOrigin))

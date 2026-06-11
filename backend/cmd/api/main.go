@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +13,8 @@ import (
 	"github.com/example/food-app/backend/internal/config"
 	"github.com/example/food-app/backend/internal/server"
 	"github.com/example/food-app/backend/internal/store"
+	"github.com/example/food-app/backend/internal/telemetry"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 )
 
 func main() {
@@ -21,9 +23,26 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Bootstrap OTel before anything else so all log records are exported.
+	// Falls back to stderr logging if the collector is unreachable.
+	otelShutdown, err := telemetry.Setup(ctx, "food-app", "0.1.0")
+	if err != nil {
+		slog.Warn("telemetry unavailable, falling back to stderr", "error", err)
+	} else {
+		slog.SetDefault(otelslog.NewLogger("food-app"))
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := otelShutdown(shutdownCtx); err != nil {
+				slog.Error("telemetry shutdown", "error", err)
+			}
+		}()
+	}
+
 	pool, err := store.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		slog.Error("database connect failed", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
@@ -34,21 +53,21 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("listening on :%s", cfg.Port)
+		slog.Info("server started", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server: %v", err)
+			slog.Error("server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
-	// Wait for an interrupt, then shut down gracefully.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
-	log.Println("shutting down...")
+	slog.Info("shutting down")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("shutdown: %v", err)
+		slog.Error("http shutdown", "error", err)
 	}
 }
