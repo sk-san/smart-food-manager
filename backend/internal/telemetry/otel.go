@@ -22,13 +22,14 @@ import (
 // The returned shutdown function must be called on process exit.
 // All providers export via OTLP gRPC; the endpoint is controlled by the
 // standard OTEL_EXPORTER_OTLP_ENDPOINT environment variable (default: localhost:4317).
-func Setup(ctx context.Context, serviceName, serviceVersion string) (func(context.Context) error, error) {
+func Setup(ctx context.Context, serviceName, serviceVersion, environment string) (func(context.Context) error, error) {
 	res, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
 			semconv.ServiceName(serviceName),
 			semconv.ServiceVersion(serviceVersion),
+			semconv.DeploymentEnvironment(environment),
 		),
 	)
 	if err != nil {

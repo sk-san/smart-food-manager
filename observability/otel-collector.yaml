@@ -15,6 +15,21 @@ processors:
     timeout: 1s
     send_batch_size: 1024
 
+  # Loki label policy (blueprint section 16): promote only approved
+  # low-cardinality fields to indexed labels via the loki.* hint
+  # attributes; trace/request/session/user IDs and other high-cardinality
+  # values stay in the log body.
+  attributes/loki_labels:
+    actions:
+      - action: insert
+        key: loki.attribute.labels
+        value: source,severity,event.category,event.name,event.outcome,dependency.provider,dependency.service
+  resource/loki_labels:
+    attributes:
+      - action: insert
+        key: loki.resource.labels
+        value: service.name,deployment.environment
+
 exporters:
   # Traces → Tempo
   otlp/tempo:
@@ -28,6 +43,9 @@ exporters:
     namespace: foodapp
     send_timestamps: true
     metric_expiration: 3m
+    # Keep the blueprint metric names (e.g. http_server_request_duration_ms)
+    # instead of appending unit/_total suffixes.
+    add_metric_suffixes: false
 
   # Logs → Loki
   loki:
@@ -56,5 +74,5 @@ service:
       exporters: [prometheus]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, resource/loki_labels, attributes/loki_labels, batch]
       exporters: [loki]

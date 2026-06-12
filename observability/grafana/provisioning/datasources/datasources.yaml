@@ -18,8 +18,10 @@ datasources:
     url: http://loki:3100
     jsonData:
       derivedFields:
+        # Matches both the OTLP record's traceid and the blueprint's
+        # trace_id body field, linking log lines to Tempo traces.
         - datasourceUid: tempo
-          matcherRegex: '"TraceId"\s*:\s*"([a-f0-9]+)"'
+          matcherRegex: '"trace_?id"\s*:\s*"([0-9a-f]{32})"'
           name: TraceID
           url: "$${__value.raw}"
 

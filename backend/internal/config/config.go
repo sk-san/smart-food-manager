@@ -15,6 +15,15 @@ type Config struct {
 	RateLimitRPS   float64
 	RateLimitBurst float64
 	AllowedOrigin  string
+
+	// Observability identity (service.name / service.version /
+	// deployment.environment on every log, trace, and metric).
+	ServiceName    string
+	ServiceVersion string
+	Environment    string
+	// LogHashSalt is mixed into hashed log identifiers (client IPs, demo
+	// user emails) so they cannot be reversed by brute force.
+	LogHashSalt string
 }
 
 // Load reads configuration from the environment, applying sensible defaults
@@ -28,6 +37,10 @@ func Load() Config {
 		RateLimitRPS:   getEnvFloat("RATE_LIMIT_RPS", 10),
 		RateLimitBurst: getEnvFloat("RATE_LIMIT_BURST", 20),
 		AllowedOrigin:  getEnv("ALLOWED_ORIGIN", "http://localhost:5173"),
+		ServiceName:    getEnv("SERVICE_NAME", "backend-api"),
+		ServiceVersion: getEnv("SERVICE_VERSION", "0.1.0"),
+		Environment:    getEnv("DEPLOYMENT_ENVIRONMENT", "development"),
+		LogHashSalt:    getEnv("LOG_HASH_SALT", ""),
 	}
 }
 

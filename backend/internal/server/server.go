@@ -17,18 +17,23 @@ import (
 func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	r := chi.NewRouter()
 
-	// Cross-cutting middleware.
+	// Cross-cutting middleware. RequestContext and RequestLogger implement
+	// the structured logging design (see observability/README.md): session
+	// and user identifiers flow into every log entry, and each request
+	// emits request_received / request_completed / request_failed events.
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
-	r.Use(otelhttp.NewMiddleware("food-app"))
-	r.Use(chimw.Logger)
-	r.Use(chimw.Recoverer)
+	r.Use(otelhttp.NewMiddleware(cfg.ServiceName))
 	r.Use(cors(cfg.AllowedOrigin))
+	r.Use(middleware.RequestContext)
+	r.Use(middleware.RequestLogger("/healthz"))
+	r.Use(chimw.Recoverer)
 	r.Use(middleware.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst).Middleware)
 
 	health := handler.NewHealthHandler(pool)
 	auth := handler.NewAuthHandler(cfg.JWTSecret, cfg.JWTExpiry)
 	nutrients := handler.NewNutrientHandler(pool)
+	frontendLogs := handler.NewTelemetryHandler()
 
 	r.Get("/healthz", health.Healthz)
 
@@ -36,6 +41,11 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 		// Public endpoints.
 		r.Post("/auth/login", auth.Login)
 		r.Get("/nutrients", nutrients.List)
+
+		// Frontend telemetry sink: public, but a valid token (when
+		// present) binds the events to the authenticated user.
+		r.With(middleware.OptionalAuthenticator(cfg.JWTSecret)).
+			Post("/telemetry/logs", frontendLogs.Ingest)
 
 		// Authenticated endpoints.
 		r.Group(func(r chi.Router) {
@@ -60,7 +70,7 @@ func cors(origin string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Session-Id, traceparent")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return
