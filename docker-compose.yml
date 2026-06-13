@@ -35,6 +35,9 @@ services:
       ALLOWED_ORIGIN: http://localhost:5173
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_EXPORTER_OTLP_INSECURE: "true"
+      SERVICE_VERSION: "0.1.0"
+      DEPLOYMENT_ENVIRONMENT: development
+      LOG_HASH_SALT: ${LOG_HASH_SALT:-dev-salt-change-me}
     ports:
       - "8080:8080"
     depends_on:

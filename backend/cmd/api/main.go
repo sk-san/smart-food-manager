@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/example/food-app/backend/internal/config"
+	"github.com/example/food-app/backend/internal/logging"
 	"github.com/example/food-app/backend/internal/server"
 	"github.com/example/food-app/backend/internal/store"
 	"github.com/example/food-app/backend/internal/telemetry"
@@ -23,13 +24,17 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Identity stamped on every structured log entry.
+	logging.SetService(cfg.ServiceName, cfg.ServiceVersion, cfg.Environment)
+	logging.SetHashSalt(cfg.LogHashSalt)
+
 	// Bootstrap OTel before anything else so all log records are exported.
 	// Falls back to stderr logging if the collector is unreachable.
-	otelShutdown, err := telemetry.Setup(ctx, "food-app", "0.1.0")
+	otelShutdown, err := telemetry.Setup(ctx, cfg.ServiceName, cfg.ServiceVersion, cfg.Environment)
 	if err != nil {
 		slog.Warn("telemetry unavailable, falling back to stderr", "error", err)
 	} else {
-		slog.SetDefault(otelslog.NewLogger("food-app"))
+		slog.SetDefault(otelslog.NewLogger(cfg.ServiceName))
 		defer func() {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

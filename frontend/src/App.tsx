@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 import { apiGet } from "./api/client";
 import type { Health, Nutrient } from "./api/types";
+import { logScreenRendered, logScreenView } from "./telemetry/events";
 
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [nutrients, setNutrients] = useState<Nutrient[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    logScreenView("home");
+    logScreenRendered("home", performance.now());
+  }, []);
 
   useEffect(() => {
     apiGet<Health>("/healthz").then(setHealth).catch((e) => setError(String(e)));
