@@ -24,6 +24,12 @@ type Config struct {
 	// LogHashSalt is mixed into hashed log identifiers (client IPs, demo
 	// user emails) so they cannot be reversed by brute force.
 	LogHashSalt string
+
+	// Gemini external API configuration.
+	GeminiAPIKey  string
+	GeminiBaseURL string
+	GeminiModel   string
+	GeminiTimeout time.Duration
 }
 
 // Load reads configuration from the environment, applying sensible defaults
@@ -41,6 +47,10 @@ func Load() Config {
 		ServiceVersion: getEnv("SERVICE_VERSION", "0.1.0"),
 		Environment:    getEnv("DEPLOYMENT_ENVIRONMENT", "development"),
 		LogHashSalt:    getEnv("LOG_HASH_SALT", ""),
+		GeminiAPIKey:   getEnv("GEMINI_API_KEY", ""),
+		GeminiBaseURL:  getEnv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
+		GeminiModel:    getEnv("GEMINI_MODEL", "gemini-2.5-flash"),
+		GeminiTimeout:  time.Duration(getEnvInt("GEMINI_TIMEOUT_SECONDS", 30)) * time.Second,
 	}
 }
 

@@ -1,17 +1,28 @@
 package handler
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type NutrientHandler struct {
-	pool *pgxpool.Pool
+// Advisor produces nutrition guidance from a prompt. *gemini.Client satisfies
+// this interface; the handler depends on the interface (not the concrete
+// client) so it stays unit-testable with a fake.
+type Advisor interface {
+	GenerateText(ctx context.Context, system, prompt string) (string, error)
 }
 
-func NewNutrientHandler(pool *pgxpool.Pool) *NutrientHandler {
-	return &NutrientHandler{pool: pool}
+type NutrientHandler struct {
+	pool    *pgxpool.Pool
+	advisor Advisor
+}
+
+func NewNutrientHandler(pool *pgxpool.Pool, advisor Advisor) *NutrientHandler {
+	return &NutrientHandler{pool: pool, advisor: advisor}
 }
 
 type nutrient struct {
@@ -50,4 +61,44 @@ func (h *NutrientHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+type adviceRequest struct {
+	Prompt string `json:"prompt"`
+}
+
+type adviceResponse struct {
+	Advice string `json:"advice"`
+}
+
+const adviceSystemPrompt = `You are a nutrition assistant for a food management app.
+Given the user's question, respond with concise, practical guidance.
+Respond as JSON of the form {"advice": "<text>"}.`
+
+// Advice forwards the user's question to the Advisor (Gemini) and returns the
+// generated text.
+func (h *NutrientHandler) Advice(w http.ResponseWriter, r *http.Request) {
+	if h.advisor == nil {
+		writeError(w, http.StatusServiceUnavailable, "advisor not configured")
+		return
+	}
+
+	var req adviceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		writeError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+
+	text, err := h.advisor.GenerateText(r.Context(), adviceSystemPrompt, req.Prompt)
+	if err != nil {
+		// Detail is captured in the dependency logs/metrics; keep the client
+		// response generic.
+		writeError(w, http.StatusBadGateway, "advice generation failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, adviceResponse{Advice: text})
 }

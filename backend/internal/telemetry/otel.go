@@ -23,10 +23,13 @@ import (
 // All providers export via OTLP gRPC; the endpoint is controlled by the
 // standard OTEL_EXPORTER_OTLP_ENDPOINT environment variable (default: localhost:4317).
 func Setup(ctx context.Context, serviceName, serviceVersion, environment string) (func(context.Context) error, error) {
+	// NewSchemaless (rather than NewWithAttributes + semconv.SchemaURL) avoids a
+	// "conflicting Schema URL" error from resource.Merge when the SDK's
+	// resource.Default() carries a newer semconv schema than the one imported
+	// here. The merged resource keeps the default's schema.
 	res, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
+		resource.NewSchemaless(
 			semconv.ServiceName(serviceName),
 			semconv.ServiceVersion(serviceVersion),
 			semconv.DeploymentEnvironment(environment),

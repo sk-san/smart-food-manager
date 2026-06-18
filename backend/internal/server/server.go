@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/example/food-app/backend/internal/config"
+	"github.com/example/food-app/backend/internal/gemini"
 	"github.com/example/food-app/backend/internal/handler"
 	"github.com/example/food-app/backend/internal/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,9 +31,18 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	r.Use(chimw.Recoverer)
 	r.Use(middleware.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst).Middleware)
 
+	geminiClient := gemini.New(gemini.Config{
+		APIKey:  cfg.GeminiAPIKey,
+		BaseURL: cfg.GeminiBaseURL,
+		Model:   cfg.GeminiModel,
+		Timeout: cfg.GeminiTimeout,
+	})
+
 	health := handler.NewHealthHandler(pool)
 	auth := handler.NewAuthHandler(cfg.JWTSecret, cfg.JWTExpiry)
-	nutrients := handler.NewNutrientHandler(pool)
+	nutrients := handler.NewNutrientHandler(pool, geminiClient)
+	labels := handler.NewLabelHandler(pool, geminiClient)
+	nutrition := handler.NewNutritionHandler(geminiClient)
 	frontendLogs := handler.NewTelemetryHandler()
 
 	r.Get("/healthz", health.Healthz)
@@ -47,10 +57,22 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 		r.With(middleware.OptionalAuthenticator(cfg.JWTSecret)).
 			Post("/telemetry/logs", frontendLogs.Ingest)
 
+		// AddEntryModal food analysis (text or image) via Gemini. Public so
+		// the modal works pre-login; a token, when present, binds the call
+		// to the user.
+		r.With(middleware.OptionalAuthenticator(cfg.JWTSecret)).
+			Post("/nutrition/analyze", nutrition.Analyze)
+
 		// Authenticated endpoints.
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Authenticator(cfg.JWTSecret))
 			r.Get("/me", auth.Me)
+
+			// AI nutrition advice, backed by the Gemini external API.
+			r.Post("/nutrients/advice", nutrients.Advice)
+
+			// Extract nutrients from a product-label image and save a food.
+			r.Post("/foods/from-label", labels.ExtractAndSave)
 
 			// Admin-only example (RBAC).
 			r.With(middleware.RequireRole("admin")).
