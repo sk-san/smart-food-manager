@@ -2,6 +2,15 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 
+# Load .env so native targets (backend, migrate, etc.) get the same config as
+# the containers — including OTEL_EXPORTER_OTLP_INSECURE and DATABASE_URL.
+# Without this, `go run` starts with TLS-on OTLP defaults and telemetry is
+# silently dropped against the plaintext collector.
+ifneq (,$(wildcard .env))
+include .env
+export
+endif
+
 POSTGRES_USER ?= app
 POSTGRES_DB   ?= foodapp
 
