@@ -1,20 +1,28 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/example/food-app/backend/internal/middleware"
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
+type DB interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 type AuthHandler struct {
+	db     DB // Connection to Postgres
 	secret string
 	ttl    time.Duration
 }
 
-func NewAuthHandler(secret string, ttl time.Duration) *AuthHandler {
-	return &AuthHandler{secret: secret, ttl: ttl}
+func NewAuthHandler(db DB, secret string, ttl time.Duration) *AuthHandler {
+	return &AuthHandler{db: db, secret: secret, ttl: ttl}
 }
 
 type loginRequest struct {
@@ -26,18 +34,32 @@ type loginResponse struct {
 	Token string `json:"token"`
 }
 
-// Login is a DEMO stub. It issues a token for any non-empty email so the
-// scaffold runs end to end. Replace with a real lookup against the users table
-// plus password-hash verification before shipping.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" || req.Password == "" {
 		writeError(w, http.StatusBadRequest, "email and password required")
 		return
 	}
 
-	// TODO: verify credentials against the database.
-	roles := []string{"user"}
+	var dbPasswordHash string
+	var roles []string
+
+	// 1. Look up the user by email
+	query := "SELECT password_hash, roles FROM users WHERE email = $1"
+	err := h.db.QueryRow(r.Context(), query, req.Email).Scan(&dbPasswordHash, &roles)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid email or password")
+		return
+	}
+
+	// 2. Safely compare the typed password with the encrypted database hash
+	err = bcrypt.CompareHashAndPassword([]byte(dbPasswordHash), []byte(req.Password))
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid email or password")
+		return
+	}
+
+	// 3. Success! Generate the real JWT token
 	token, err := middleware.NewToken(h.secret, req.Email, roles, h.ttl)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not issue token")
@@ -46,7 +68,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, loginResponse{Token: token})
 }
 
-// Me returns the authenticated caller's claims.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	claims, ok := middleware.ClaimsFromContext(r.Context())
 	if !ok {

@@ -25,7 +25,7 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	r.Use(middleware.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst).Middleware)
 
 	health := handler.NewHealthHandler(pool)
-	auth := handler.NewAuthHandler(cfg.JWTSecret, cfg.JWTExpiry)
+	auth := handler.NewAuthHandler(pool, cfg.JWTSecret, cfg.JWTExpiry)
 	nutrients := handler.NewNutrientHandler(pool)
 
 	r.Get("/healthz", health.Healthz)
