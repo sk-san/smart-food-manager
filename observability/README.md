@@ -101,6 +101,25 @@ addresses, phone numbers, addresses, card data. Log metadata instead:
 token counts, `sha256:` hashes (salted via `LOG_HASH_SALT`), sizes, MIME
 types. `error.stack` only at ERROR+ severity and only after redaction.
 
+## Dashboards
+
+Provisioned automatically into the **Smart Food Manager** Grafana folder
+from `grafana/provisioning/dashboards/foodapp/` (edits in the UI are
+allowed but files are the source of truth; the provider re-reads every
+30s):
+
+- **API Overview** (`foodapp-api-overview`) — request rate, 4xx/5xx
+  rates, latency quantiles, per-route breakdowns; filterable by route.
+- **Dependencies & AI** (`foodapp-dependencies-ai`) — external API call
+  rate/failures/latency by provider and service, LLM token throughput,
+  file uploads, plus a live tail of dependency failures. The LLM-token
+  and file-upload panels stay empty until handlers record those
+  instruments (defined in `internal/telemetry/metrics.go` but not yet
+  wired into any handler).
+- **Logs, Auth & Errors** (`foodapp-logs-auth`) — log volume by
+  severity, error events by name, login attempts by outcome, frontend
+  events, and error log tails whose TraceID links open Tempo.
+
 ## Example queries
 
 ```logql
