@@ -9,6 +9,8 @@
 *.tsbuildinfo
 /frontend/vite.config.js
 /frontend/vite.config.d.ts
+/frontend/test-results/
+/frontend/playwright-report/
 
 # Env / secrets
 .env

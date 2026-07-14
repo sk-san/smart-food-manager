@@ -14,7 +14,7 @@ endif
 POSTGRES_USER ?= app
 POSTGRES_DB   ?= foodapp
 
-.PHONY: help db-up db-down migrate backend frontend tidy install build clean obs-up obs-down
+.PHONY: help db-up db-down migrate backend frontend tidy install build clean obs-up obs-down test test-e2e test-e2e-frontend
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -34,6 +34,15 @@ migrate: ## Apply migrations manually against the running db
 
 backend: ## Run the Go API (hot path: go run)
 	cd backend && go run ./cmd/api
+
+test: ## Run backend unit tests
+	cd backend && go test ./...
+
+test-e2e: ## Run end-to-end API tests (needs the db from `make db-up`)
+	cd backend && go test -tags e2e -count=1 -v ./e2e
+
+test-e2e-frontend: ## Run Playwright UI tests (boots Vite itself; no backend needed)
+	cd frontend && npx playwright test
 
 frontend: ## Run the Vite dev server
 	cd frontend && npm run dev
