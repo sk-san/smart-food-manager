@@ -66,12 +66,12 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 transition-opacity">
-      <div className="bg-[#fdfcff] w-full max-w-lg rounded-[28px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-surface w-full max-w-lg rounded-[28px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="p-6 pb-2 flex justify-between items-center">
-          <h2 className="text-2xl font-normal text-[#1d1b20]">Log Food</h2>
-          <button onClick={handleClose} className="p-2 hover:bg-[#f3f0f5] rounded-full transition-colors">
-            <X size={24} className="text-[#49454f]" />
+          <h2 className="text-headline-sm font-normal text-on-surface">Log Food</h2>
+          <button onClick={handleClose} className="p-2 hover:bg-surface-container rounded-full transition-colors">
+            <X size={24} className="text-on-surface-variant" />
           </button>
         </div>
 
@@ -81,8 +81,8 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
             onClick={() => { setMode('text'); setAnalysisResult(null); }}
             className={`flex-1 py-3 rounded-full flex items-center justify-center gap-2 transition-all ${
               mode === 'text' 
-                ? 'bg-[#eaddff] text-[#21005d] font-medium' 
-                : 'bg-transparent border border-[#79747e] text-[#49454f]'
+                ? 'bg-primary-container text-on-primary-container font-medium' 
+                : 'bg-transparent border border-outline text-on-surface-variant'
             }`}
           >
             <Type size={18} />
@@ -92,8 +92,8 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
             onClick={() => { setMode('image'); setAnalysisResult(null); }}
             className={`flex-1 py-3 rounded-full flex items-center justify-center gap-2 transition-all ${
               mode === 'image' 
-                ? 'bg-[#eaddff] text-[#21005d] font-medium' 
-                : 'bg-transparent border border-[#79747e] text-[#49454f]'
+                ? 'bg-primary-container text-on-primary-container font-medium' 
+                : 'bg-transparent border border-outline text-on-surface-variant'
             }`}
           >
             <Camera size={18} />
@@ -107,22 +107,22 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
             <div className="space-y-4">
               {mode === 'text' ? (
                 <textarea
-                  className="w-full h-40 bg-[#f3f0f5] rounded-xl p-4 text-[#1d1b20] focus:outline-none focus:ring-2 focus:ring-[#6750a4] resize-none placeholder-[#49454f]"
+                  className="w-full h-40 bg-surface-container rounded-xl p-4 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary resize-none placeholder-on-surface-variant"
                   placeholder="e.g., A grilled chicken sandwich and a medium fries..."
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                 />
               ) : (
                 <div 
-                  className="w-full h-64 border-2 border-dashed border-[#79747e] rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-[#f3f0f5] transition-colors relative overflow-hidden"
+                  className="w-full h-64 border-2 border-dashed border-outline rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container transition-colors relative overflow-hidden"
                   onClick={() => fileInputRef.current?.click()}
                 >
                   {previewUrl ? (
                     <img src={previewUrl} alt="Preview" className="absolute inset-0 w-full h-full object-cover" />
                   ) : (
                     <>
-                      <Upload size={32} className="text-[#49454f] mb-2" />
-                      <p className="text-[#49454f]">Tap to upload food photo</p>
+                      <Upload size={32} className="text-on-surface-variant mb-2" />
+                      <p className="text-on-surface-variant">Tap to upload food photo</p>
                     </>
                   )}
                   <input 
@@ -138,25 +138,25 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
               <button
                 disabled={isAnalyzing || (mode === 'text' ? !inputText : !selectedFile)}
                 onClick={handleAnalyze}
-                className="w-full py-4 bg-[#6750a4] text-white rounded-full font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
+                className="w-full py-4 bg-primary text-on-primary rounded-full font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
               >
-                {isAnalyzing ? <Loader2 className="animate-spin" /> : <React.Fragment>Analyze <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">AI</span></React.Fragment>}
+                {isAnalyzing ? <Loader2 className="animate-spin" /> : <React.Fragment>Analyze <span className="text-label-md bg-on-primary/20 px-2 py-0.5 rounded-full">AI</span></React.Fragment>}
               </button>
             </div>
           ) : (
             <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <h3 className="text-lg font-medium text-[#1d1b20]">Found Items</h3>
+              <h3 className="text-title-md font-medium text-on-surface">Found Items</h3>
               <div className="space-y-2">
                 {analysisResult.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-[#f3f0f5] p-4 rounded-2xl">
+                  <div key={idx} className="flex justify-between items-center bg-surface-container p-4 rounded-2xl">
                     <div>
-                      <p className="font-medium text-[#1d1b20]">{item.name}</p>
-                      <p className="text-sm text-[#49454f]">{item.calories} kcal</p>
+                      <p className="font-medium text-on-surface">{item.name}</p>
+                      <p className="text-body-md text-on-surface-variant tabular-nums">{item.calories} kcal</p>
                     </div>
-                    <div className="flex gap-2 text-xs text-[#49454f]">
-                      <span className="bg-[#e8def8] px-2 py-1 rounded-md">P: {item.protein}g</span>
-                      <span className="bg-[#e8def8] px-2 py-1 rounded-md">C: {item.carbs}g</span>
-                      <span className="bg-[#e8def8] px-2 py-1 rounded-md">F: {item.fat}g</span>
+                    <div className="flex gap-2 text-label-md text-on-surface-variant">
+                      <span className="bg-secondary-container px-2 py-1 rounded-md tabular-nums">P: {item.protein}g</span>
+                      <span className="bg-secondary-container px-2 py-1 rounded-md tabular-nums">C: {item.carbs}g</span>
+                      <span className="bg-secondary-container px-2 py-1 rounded-md tabular-nums">F: {item.fat}g</span>
                     </div>
                   </div>
                 ))}
@@ -164,13 +164,13 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
               <div className="flex gap-3 pt-4">
                  <button
                   onClick={() => setAnalysisResult(null)}
-                  className="flex-1 py-3 border border-[#79747e] text-[#6750a4] rounded-full font-medium hover:bg-[#f3f0f5] transition-colors"
+                  className="flex-1 py-3 border border-outline text-primary rounded-full font-medium hover:bg-surface-container transition-colors"
                 >
                   Retry
                 </button>
                 <button
                   onClick={handleConfirm}
-                  className="flex-1 py-3 bg-[#6750a4] text-white rounded-full font-medium shadow-md hover:shadow-lg flex items-center justify-center gap-2 transition-colors"
+                  className="flex-1 py-3 bg-primary text-on-primary rounded-full font-medium shadow-md hover:shadow-lg flex items-center justify-center gap-2 transition-colors"
                 >
                   <Check size={18} />
                   Add to Log

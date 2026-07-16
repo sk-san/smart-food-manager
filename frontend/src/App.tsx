@@ -40,6 +40,18 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [isLookingAtContent, setIsLookingAtContent] = useState(false);
+  // Initial value comes from the pre-paint script in index.html, which
+  // resolves localStorage + the system preference before React mounts.
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
+
+  const handleToggleDark = () => {
+    setIsDark((prev) => {
+      const next = !prev;
+      document.documentElement.classList.toggle("dark", next);
+      localStorage.setItem("nutrimind-theme", next ? "dark" : "light");
+      return next;
+    });
+  };
 
   // Initial screen view for telemetry.
   useEffect(() => {
@@ -89,11 +101,11 @@ function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#fdfcff] flex">
+    <div className="min-h-screen bg-surface flex">
       {/* Navigation Rail (Desktop) */}
-      <aside className="hidden md:flex flex-col w-24 bg-[#f3f0f5] border-r border-[#e7e0ec] items-center py-8 gap-8 fixed h-full z-20">
-        <div className="w-12 h-12 bg-[#eaddff] rounded-xl flex items-center justify-center mb-4">
-          <Utensils className="text-[#21005d]" size={24} />
+      <aside className="hidden md:flex flex-col w-24 bg-surface-container border-r border-outline-variant items-center py-8 gap-8 fixed h-full z-20">
+        <div className="w-12 h-12 bg-primary-container rounded-xl flex items-center justify-center mb-4">
+          <Utensils className="text-on-primary-container" size={24} />
         </div>
 
         <nav className="flex flex-col gap-6 w-full items-center">
@@ -102,7 +114,7 @@ function App() {
               key={tab}
               onClick={() => handleTabChange(tab)}
               className={`flex flex-col items-center gap-1 w-16 py-2 rounded-xl transition-all ${
-                activeTab === tab ? "bg-[#e8def8] text-[#1d1b20]" : "text-[#49454f] hover:bg-[#e7e0ec]/50"
+                activeTab === tab ? "bg-secondary-container text-on-surface" : "text-on-surface-variant hover:bg-outline-variant/50"
               }`}
             >
               <Icon size={24} strokeWidth={activeTab === tab ? 2.5 : 2} />
@@ -125,7 +137,7 @@ function App() {
         ) : activeTab === "history" ? (
           <StatsView entries={entries} goals={goals} />
         ) : (
-          <SettingsView goals={goals} onUpdateGoals={setGoals} />
+          <SettingsView goals={goals} onUpdateGoals={setGoals} isDark={isDark} onToggleDark={handleToggleDark} />
         )}
 
         {/* Cute AI Character - Persistent across views */}
@@ -135,7 +147,7 @@ function App() {
       {/* Floating Action Button (FAB) */}
       <button
         onClick={() => setIsModalOpen(true)}
-        className="fixed bottom-6 right-6 md:bottom-10 md:right-10 w-16 h-16 bg-[#6750a4] hover:bg-[#6750a4]/90 text-white rounded-[20px] shadow-xl shadow-[#6750a4]/30 flex items-center justify-center transition-all hover:scale-105 active:scale-95 z-50 group"
+        className="fixed bottom-24 right-6 md:bottom-10 md:right-10 w-16 h-16 bg-primary hover:bg-primary/90 text-on-primary rounded-[20px] shadow-xl shadow-primary/30 flex items-center justify-center transition-all hover:scale-105 active:scale-95 z-50 group"
         aria-label="Log food"
       >
         <Plus size={32} className="group-hover:rotate-90 transition-transform duration-300" />
@@ -144,16 +156,16 @@ function App() {
       <AddEntryModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onAdd={handleAddEntries} />
 
       {/* Mobile Bottom Nav */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 h-20 bg-[#f3f0f5] border-t border-[#e7e0ec] flex justify-around items-center px-4 z-40">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 h-20 bg-surface-container border-t border-outline-variant flex justify-around items-center px-4 z-40">
         {navItems.map(({ tab, icon: Icon }) => (
           <button
             key={tab}
             onClick={() => handleTabChange(tab)}
             className={`flex flex-col items-center gap-1 p-2 rounded-full transition-all ${
-              activeTab === tab ? "text-[#1d1b20]" : "text-[#49454f]"
+              activeTab === tab ? "text-on-surface" : "text-on-surface-variant"
             }`}
           >
-            <div className={`px-5 py-1 rounded-full ${activeTab === tab ? "bg-[#e8def8]" : ""}`}>
+            <div className={`px-5 py-1 rounded-full ${activeTab === tab ? "bg-secondary-container" : ""}`}>
               <Icon size={24} strokeWidth={activeTab === tab ? 2.5 : 2} />
             </div>
             <span className="text-xs font-medium">{TAB_LABELS[tab]}</span>

@@ -340,26 +340,26 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({ stats, goals, i
   }, []);
 
   return (
-    <div className="cmp fixed bottom-24 right-4 md:bottom-8 md:left-24 md:right-auto z-40 flex flex-col items-center gap-2 pointer-events-none">
+    <div className="cmp fixed bottom-24 left-4 md:bottom-8 md:left-24 z-40 flex flex-col items-center gap-2 pointer-events-none">
       <style>{CMP_STYLES}</style>
 
       {/* Speech Bubble */}
       <div
-        className={`pointer-events-auto relative bg-white border border-[#e7e0ec] rounded-2xl p-3 shadow-lg max-w-[200px] mb-2 transform transition-all duration-300 origin-bottom ${
+        className={`pointer-events-auto relative bg-surface-container-lowest border border-outline-variant rounded-2xl p-3 shadow-lg max-w-[200px] mb-2 transform transition-all duration-300 origin-bottom ${
           message && !isLookingAtScreen ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
         }`}
       >
-        <div className="text-sm text-[#1d1b20] font-medium leading-tight">
+        <div className="text-body-md text-on-surface font-medium leading-tight">
           {isTyping ? (
             <div className="flex gap-1 items-center h-5">
-              <span className="w-1.5 h-1.5 bg-[#6750a4] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-1.5 h-1.5 bg-[#6750a4] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-1.5 h-1.5 bg-[#6750a4] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
             </div>
           ) : message}
         </div>
         {/* Tail */}
-        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-b border-r border-[#e7e0ec] transform rotate-45" />
+        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-surface-container-lowest border-b border-r border-outline-variant transform rotate-45" />
       </div>
 
       {/* Character — grab and stretch it */}

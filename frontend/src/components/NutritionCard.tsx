@@ -25,23 +25,23 @@ const NutritionCard: React.FC<NutritionCardProps> = ({
 
   return (
     <div
-      className="bg-[#f3f0f5] rounded-[24px] p-4 flex flex-col relative overflow-hidden group hover:bg-[#eae7f0] transition-colors duration-300"
+      className="bg-surface-container rounded-[24px] p-4 flex flex-col relative overflow-hidden group hover:bg-surface-container-high transition-colors duration-300"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
       <div className="flex justify-between items-start mb-2 z-10">
-        <div className={`p-3 rounded-2xl ${color} bg-opacity-20 text-gray-900`}>{icon}</div>
+        <div className={`p-3 rounded-2xl ${color} bg-opacity-20 text-gray-900 dark:text-gray-100`}>{icon}</div>
         <div className="text-right">
-          <span className="block text-2xl font-bold text-[#1d1b20]">{Math.round(value)}</span>
-          <span className="text-xs text-[#49454f] font-medium">
+          <span className="block text-headline-sm font-bold text-on-surface tabular-nums">{Math.round(value)}</span>
+          <span className="text-label-md text-on-surface-variant font-medium tabular-nums">
             / {goal} {unit}
           </span>
         </div>
       </div>
 
       <div className="mt-auto z-10">
-        <h3 className="text-sm font-medium text-[#49454f]">{label}</h3>
-        <div className="w-full bg-[#e7e0ec] h-2 rounded-full mt-2 overflow-hidden">
+        <h3 className="text-label-lg font-medium text-on-surface-variant">{label}</h3>
+        <div className="w-full bg-outline-variant h-2 rounded-full mt-2 overflow-hidden">
           <div
             className={`h-full rounded-full ${color}`}
             style={{ width: `${percentage}%`, transition: "width 1s ease-in-out" }}

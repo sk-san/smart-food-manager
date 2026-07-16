@@ -55,26 +55,26 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
       {/* Header */}
       <header className="flex justify-between items-center mb-8 pt-2">
         <div>
-          <h1 className="text-4xl text-[#1d1b20] font-normal tracking-tight">Statistics</h1>
-          <p className="text-[#49454f] text-sm mt-1">
+          <h1 className="text-display-sm text-on-surface font-normal tracking-tight">Statistics</h1>
+          <p className="text-on-surface-variant text-body-md mt-1">
              Weekly Overview • Oct 23 - Oct 30
           </p>
         </div>
-        <div className="w-10 h-10 rounded-full bg-[#6750a4] text-white flex items-center justify-center font-bold text-sm shadow-md">
+        <div className="w-10 h-10 rounded-full bg-primary text-on-primary flex items-center justify-center font-bold text-sm shadow-md">
           JD
         </div>
       </header>
 
       {/* Key Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white p-5 rounded-[24px] border border-[#e7e0ec] shadow-sm flex items-center gap-4">
-           <div className="w-12 h-12 rounded-full bg-[#eaddff] flex items-center justify-center text-[#21005d]">
+        <div className="bg-surface-container-lowest p-5 rounded-[24px] border border-outline-variant shadow-sm flex items-center gap-4">
+           <div className="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container">
              <Flame size={24} />
            </div>
            <div>
-             <p className="text-sm text-[#49454f]">Avg. Calories</p>
+             <p className="text-body-md text-on-surface-variant">Avg. Calories</p>
              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-[#1d1b20]">{averageCalories}</span>
+                <span className="text-headline-sm font-bold text-on-surface tabular-nums">{averageCalories}</span>
                 <span className="text-xs text-green-600 bg-green-100 px-1.5 py-0.5 rounded-md flex items-center">
                     <ArrowUpRight size={12} className="mr-0.5" /> 2%
                 </span>
@@ -82,27 +82,27 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
            </div>
         </div>
 
-        <div className="bg-white p-5 rounded-[24px] border border-[#e7e0ec] shadow-sm flex items-center gap-4">
-           <div className="w-12 h-12 rounded-full bg-[#d0bcff] flex items-center justify-center text-[#21005d]">
+        <div className="bg-surface-container-lowest p-5 rounded-[24px] border border-outline-variant shadow-sm flex items-center gap-4">
+           <div className="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container">
              <Award size={24} />
            </div>
            <div>
-             <p className="text-sm text-[#49454f]">Goal Streak</p>
+             <p className="text-body-md text-on-surface-variant">Goal Streak</p>
              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-[#1d1b20]">5 Days</span>
-                 <span className="text-xs text-[#49454f] bg-[#f3f0f5] px-1.5 py-0.5 rounded-md">Best: 12</span>
+                <span className="text-headline-sm font-bold text-on-surface tabular-nums">5 Days</span>
+                 <span className="text-label-md text-on-surface-variant bg-surface-container px-1.5 py-0.5 rounded-md">Best: 12</span>
              </div>
            </div>
         </div>
 
-        <div className="bg-white p-5 rounded-[24px] border border-[#e7e0ec] shadow-sm flex items-center gap-4">
-           <div className="w-12 h-12 rounded-full bg-[#fce7f3] flex items-center justify-center text-[#be185d]">
+        <div className="bg-surface-container-lowest p-5 rounded-[24px] border border-outline-variant shadow-sm flex items-center gap-4">
+           <div className="w-12 h-12 rounded-full bg-[#fce7f3] dark:bg-pink-950 flex items-center justify-center text-[#be185d] dark:text-pink-300">
              <TrendingUp size={24} />
            </div>
            <div>
-             <p className="text-sm text-[#49454f]">Weight Trend</p>
+             <p className="text-body-md text-on-surface-variant">Weight Trend</p>
              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-[#1d1b20]">-0.5 kg</span>
+                <span className="text-headline-sm font-bold text-on-surface tabular-nums">-0.5 kg</span>
                 <span className="text-xs text-green-600 bg-green-100 px-1.5 py-0.5 rounded-md flex items-center">
                     <ArrowDownRight size={12} className="mr-0.5" /> 
                 </span>
@@ -115,37 +115,37 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         
         {/* Weekly Calories Chart */}
-        <div className="lg:col-span-2 bg-white rounded-[32px] p-6 shadow-sm border border-[#e7e0ec]">
+        <div className="lg:col-span-2 bg-surface-container-lowest rounded-[32px] p-6 shadow-sm border border-outline-variant">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl text-[#1d1b20]">Weekly Intake</h3>
+            <h3 className="text-title-lg text-on-surface">Weekly Intake</h3>
             <div className="flex gap-2">
-               <span className="text-xs font-medium px-2 py-1 bg-[#f3f0f5] rounded-full text-[#49454f]">Calories</span>
+               <span className="text-xs font-medium px-2 py-1 bg-surface-container rounded-full text-on-surface-variant">Calories</span>
             </div>
           </div>
           
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={weeklyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e0ec" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(var(--md-outline-variant))" />
                 <XAxis 
                     dataKey="day" 
                     axisLine={false} 
                     tickLine={false} 
-                    tick={{fill: '#49454f', fontSize: 12}} 
+                    tick={{fill: 'rgb(var(--md-on-surface-variant))', fontSize: 12}} 
                     dy={10}
                 />
                 <YAxis 
                     axisLine={false} 
                     tickLine={false} 
-                    tick={{fill: '#49454f', fontSize: 12}} 
+                    tick={{fill: 'rgb(var(--md-on-surface-variant))', fontSize: 12}} 
                 />
                 <Tooltip 
-                    cursor={{fill: '#f3f0f5'}}
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                    cursor={{fill: 'rgb(var(--md-surface-container))'}}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', backgroundColor: 'rgb(var(--md-surface-container-lowest))', color: 'rgb(var(--md-on-surface))' }}
                 />
                 <Bar dataKey="calories" radius={[8, 8, 8, 8]} barSize={32}>
                   {weeklyData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.calories > goals.calories ? '#f87171' : '#6750a4'} />
+                    <Cell key={`cell-${index}`} fill={entry.calories > goals.calories ? '#f87171' : 'rgb(var(--md-primary))'} />
                   ))}
                 </Bar>
                 {/* Reference Line for Goal could be added here */}
@@ -155,8 +155,8 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
         </div>
 
         {/* Macro Distribution Pie Chart */}
-        <div className="bg-white rounded-[32px] p-6 shadow-sm border border-[#e7e0ec] flex flex-col">
-           <h3 className="text-xl text-[#1d1b20] mb-6">Macro Split</h3>
+        <div className="bg-surface-container-lowest rounded-[32px] p-6 shadow-sm border border-outline-variant flex flex-col">
+           <h3 className="text-title-lg text-on-surface mb-6">Macro Split</h3>
            <div className="flex-1 min-h-[250px] relative">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -173,47 +173,47 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
                         <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
                         ))}
                     </Pie>
-                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', backgroundColor: 'rgb(var(--md-surface-container-lowest))', color: 'rgb(var(--md-on-surface))' }} />
                     <Legend verticalAlign="bottom" height={36} iconType="circle" />
                 </PieChart>
               </ResponsiveContainer>
               {/* Center Text */}
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-8">
-                  <span className="text-3xl font-bold text-[#1d1b20]">Avg</span>
-                  <span className="text-xs text-[#49454f]">Distribution</span>
+                  <span className="text-headline-md font-bold text-on-surface">Avg</span>
+                  <span className="text-label-md text-on-surface-variant">Distribution</span>
               </div>
            </div>
         </div>
       </div>
 
       {/* Top Foods / Insights List */}
-      <div className="bg-[#f3f0f5] rounded-[32px] p-6 border border-[#e7e0ec]">
-          <h3 className="text-xl text-[#1d1b20] mb-4">Highlights</h3>
+      <div className="bg-surface-container rounded-[32px] p-6 border border-outline-variant">
+          <h3 className="text-title-lg text-on-surface mb-4">Highlights</h3>
           <div className="space-y-3">
-             <div className="flex items-center justify-between p-4 bg-white rounded-2xl">
+             <div className="flex items-center justify-between p-4 bg-surface-container-lowest rounded-2xl">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
                         <Flame size={20} />
                     </div>
                     <div>
-                        <p className="font-medium text-[#1d1b20]">Highest Calorie Day</p>
-                        <p className="text-xs text-[#49454f]">Saturday</p>
+                        <p className="font-medium text-on-surface">Highest Calorie Day</p>
+                        <p className="text-label-md text-on-surface-variant">Saturday</p>
                     </div>
                 </div>
-                <span className="font-bold text-[#1d1b20]">2,600 kcal</span>
+                <span className="font-bold text-on-surface tabular-nums">2,600 kcal</span>
              </div>
 
-             <div className="flex items-center justify-between p-4 bg-white rounded-2xl">
+             <div className="flex items-center justify-between p-4 bg-surface-container-lowest rounded-2xl">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
                         <Zap size={20} />
                     </div>
                     <div>
-                        <p className="font-medium text-[#1d1b20]">Top Nutrient Source</p>
-                        <p className="text-xs text-[#49454f]">Grilled Chicken Salad</p>
+                        <p className="font-medium text-on-surface">Top Nutrient Source</p>
+                        <p className="text-label-md text-on-surface-variant">Grilled Chicken Salad</p>
                     </div>
                 </div>
-                <span className="font-bold text-[#1d1b20]">45g Protein</span>
+                <span className="font-bold text-on-surface tabular-nums">45g Protein</span>
              </div>
           </div>
       </div>

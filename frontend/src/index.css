@@ -2,12 +2,69 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Material 3 surface defaults, carried over from the NutriMind source. */
+/*
+ * Material 3 color tokens, carried over from the NutriMind source.
+ * Values are RGB channel triplets so Tailwind opacity modifiers
+ * (e.g. bg-primary/30) keep working; consume as rgb(var(--md-*)).
+ * Light values match the original hardcoded palette exactly.
+ */
 @layer base {
+  :root {
+    color-scheme: light;
+
+    --md-primary: 103 80 164; /* #6750a4 */
+    --md-on-primary: 255 255 255;
+    --md-primary-container: 234 221 255; /* #eaddff */
+    --md-on-primary-container: 33 0 93; /* #21005d */
+    --md-secondary-container: 232 222 248; /* #e8def8 */
+    --md-inverse-primary: 208 188 255; /* #d0bcff */
+
+    --md-surface: 253 252 255; /* #fdfcff */
+    --md-on-surface: 29 27 32; /* #1d1b20 */
+    --md-on-surface-variant: 73 69 79; /* #49454f */
+    --md-surface-container: 243 240 245; /* #f3f0f5 */
+    --md-surface-container-high: 234 231 240; /* #eae7f0 */
+    --md-surface-container-lowest: 255 255 255;
+
+    --md-outline: 121 116 126; /* #79747e */
+    --md-outline-variant: 231 224 236; /* #e7e0ec */
+
+    --md-error: 179 38 30; /* #b3261e */
+    --md-on-error: 255 255 255;
+
+    /* Brand hero card: deliberately dark in both themes. */
+    --md-hero: 33 0 93; /* #21005d */
+    --md-hero-accent: 208 188 255; /* #d0bcff */
+  }
+
+  .dark {
+    color-scheme: dark;
+
+    --md-primary: 208 188 255; /* #d0bcff */
+    --md-on-primary: 56 30 114; /* #381e72 */
+    --md-primary-container: 79 55 139; /* #4f378b */
+    --md-on-primary-container: 234 221 255; /* #eaddff */
+    --md-secondary-container: 74 68 88; /* #4a4458 */
+    --md-inverse-primary: 103 80 164; /* #6750a4 */
+
+    --md-surface: 20 18 24; /* #141218 */
+    --md-on-surface: 230 224 233; /* #e6e0e9 */
+    --md-on-surface-variant: 202 196 208; /* #cac4d0 */
+    --md-surface-container: 33 31 38; /* #211f26 */
+    --md-surface-container-high: 43 41 48; /* #2b2930 */
+    --md-surface-container-lowest: 29 27 32; /* #1d1b20 */
+
+    --md-outline: 147 143 153; /* #938f99 */
+    --md-outline-variant: 73 69 79; /* #49454f */
+
+    --md-error: 242 184 181; /* #f2b8b5 */
+    --md-on-error: 96 20 16; /* #601410 */
+  }
+
   body {
     font-family: "Roboto", system-ui, sans-serif;
-    background-color: #fdfcff; /* M3 Surface */
-    color: #1d1b20; /* M3 On Surface */
+    background-color: rgb(var(--md-surface));
+    color: rgb(var(--md-on-surface));
   }
 
   /* Custom scrollbar (WebKit) */
@@ -19,10 +76,10 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #e7e0ec;
+    background: rgb(var(--md-outline-variant));
     border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #d0bcff;
+    background: rgb(var(--md-inverse-primary));
   }
 }
