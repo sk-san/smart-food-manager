@@ -10,6 +10,18 @@
       href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // Apply the saved (or system) theme before first paint to avoid a
+      // light-mode flash. Kept in sync by the toggle in SettingsView.
+      (function () {
+        var stored = localStorage.getItem("nutrimind-theme");
+        var dark =
+          stored === "dark" ||
+          (stored !== "light" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
