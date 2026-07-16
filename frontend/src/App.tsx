@@ -14,6 +14,8 @@ type Tab = "dashboard" | "history" | "settings";
 // the backend is a follow-up — the AI analysis and companion already route
 // through the instrumented API client.
 const INITIAL_ENTRIES: FoodEntry[] = [
+  { id: "1", name: "Oatmeal & Blueberries", calories: 350, protein: 12, carbs: 60, fat: 6, sodium: 150, calcium: 80, iron: 3.5, timestamp: Date.now() - 10000000 },
+  { id: "2", name: "Grilled Chicken Salad", calories: 450, protein: 45, carbs: 12, fat: 20, sodium: 600, calcium: 120, iron: 2.1, timestamp: Date.now() - 5000000 },
 ];
 
 const DEFAULT_GOALS: DailyGoal = {
