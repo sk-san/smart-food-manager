@@ -3,68 +3,129 @@
 @tailwind utilities;
 
 /*
- * Material 3 color tokens, carried over from the NutriMind source.
- * Values are RGB channel triplets so Tailwind opacity modifiers
- * (e.g. bg-primary/30) keep working; consume as rgb(var(--md-*)).
- * Light values match the original hardcoded palette exactly.
+ * "Organic" design-system tokens, taken from the Dashboard Ideas design doc
+ * (direction 1a "Kitchen Ledger"). The light values are the source of truth;
+ * the .dark block flips each tonal ramp end-for-end so a given step keeps its
+ * visual role (e.g. neutral-200 stays "the track color") on a dark ground.
+ * Consumed by tailwind.config.js as var(--color-*).
  */
 @layer base {
   :root {
     color-scheme: light;
 
-    --md-primary: 103 80 164; /* #6750a4 */
-    --md-on-primary: 255 255 255;
-    --md-primary-container: 234 221 255; /* #eaddff */
-    --md-on-primary-container: 33 0 93; /* #21005d */
-    --md-secondary-container: 232 222 248; /* #e8def8 */
-    --md-inverse-primary: 208 188 255; /* #d0bcff */
+    --color-bg: #f5ead8;
+    --color-surface: #ebddc5;
+    --color-text: #201e1d;
+    --color-accent: #c67139;
+    --color-accent-2: #7a8a5e;
+    --color-divider: rgb(32 30 29 / 0.16);
 
-    --md-surface: 253 252 255; /* #fdfcff */
-    --md-on-surface: 29 27 32; /* #1d1b20 */
-    --md-on-surface-variant: 73 69 79; /* #49454f */
-    --md-surface-container: 243 240 245; /* #f3f0f5 */
-    --md-surface-container-high: 234 231 240; /* #eae7f0 */
-    --md-surface-container-lowest: 255 255 255;
+    /* Tonal ramps — generated on one shared lightness scale, so the same
+       step of any role matches the others in visual value. */
+    --color-neutral-100: #f9f4ed;
+    --color-neutral-200: #eee7db;
+    --color-neutral-300: #dcd3c4;
+    --color-neutral-400: #c0b6a5;
+    --color-neutral-500: #a19786;
+    --color-neutral-600: #82796a;
+    --color-neutral-700: #645c50;
+    --color-neutral-800: #474238;
+    --color-neutral-900: #2e2b25;
 
-    --md-outline: 121 116 126; /* #79747e */
-    --md-outline-variant: 231 224 236; /* #e7e0ec */
+    --color-accent-100: #fff2eb;
+    --color-accent-200: #ffe1d0;
+    --color-accent-300: #ffc6a5;
+    --color-accent-400: #f6a06b;
+    --color-accent-500: #d67f48;
+    --color-accent-600: #b2622d;
+    --color-accent-700: #8c491a;
+    --color-accent-800: #643312;
+    --color-accent-900: #402310;
 
-    --md-error: 179 38 30; /* #b3261e */
-    --md-on-error: 255 255 255;
-
-    /* Brand hero card: deliberately dark in both themes. */
-    --md-hero: 33 0 93; /* #21005d */
-    --md-hero-accent: 208 188 255; /* #d0bcff */
+    --color-accent-2-100: #f0fae1;
+    --color-accent-2-200: #e1eecc;
+    --color-accent-2-300: #ccdbb2;
+    --color-accent-2-400: #aebf92;
+    --color-accent-2-500: #8fa073;
+    --color-accent-2-600: #728157;
+    --color-accent-2-700: #56633f;
+    --color-accent-2-800: #3d472b;
+    --color-accent-2-900: #272e1b;
   }
 
   .dark {
     color-scheme: dark;
 
-    --md-primary: 208 188 255; /* #d0bcff */
-    --md-on-primary: 56 30 114; /* #381e72 */
-    --md-primary-container: 79 55 139; /* #4f378b */
-    --md-on-primary-container: 234 221 255; /* #eaddff */
-    --md-secondary-container: 74 68 88; /* #4a4458 */
-    --md-inverse-primary: 103 80 164; /* #6750a4 */
+    --color-bg: #211d16;
+    --color-surface: #2c261d;
+    --color-text: #f0e7d6;
+    --color-accent: #d67f48;
+    --color-accent-2: #8fa073;
+    --color-divider: rgb(240 231 214 / 0.18);
 
-    --md-surface: 20 18 24; /* #141218 */
-    --md-on-surface: 230 224 233; /* #e6e0e9 */
-    --md-on-surface-variant: 202 196 208; /* #cac4d0 */
-    --md-surface-container: 33 31 38; /* #211f26 */
-    --md-surface-container-high: 43 41 48; /* #2b2930 */
-    --md-surface-container-lowest: 29 27 32; /* #1d1b20 */
+    --color-neutral-100: #2e2b25;
+    --color-neutral-200: #474238;
+    --color-neutral-300: #645c50;
+    --color-neutral-400: #82796a;
+    --color-neutral-500: #a19786;
+    --color-neutral-600: #c0b6a5;
+    --color-neutral-700: #dcd3c4;
+    --color-neutral-800: #eee7db;
+    --color-neutral-900: #f9f4ed;
 
-    --md-outline: 147 143 153; /* #938f99 */
-    --md-outline-variant: 73 69 79; /* #49454f */
+    --color-accent-100: #402310;
+    --color-accent-200: #643312;
+    --color-accent-300: #8c491a;
+    --color-accent-400: #b2622d;
+    --color-accent-500: #d67f48;
+    --color-accent-600: #f6a06b;
+    --color-accent-700: #ffc6a5;
+    --color-accent-800: #ffe1d0;
+    --color-accent-900: #fff2eb;
 
-    --md-error: 242 184 181; /* #f2b8b5 */
-    --md-on-error: 96 20 16; /* #601410 */
+    --color-accent-2-100: #272e1b;
+    --color-accent-2-200: #3d472b;
+    --color-accent-2-300: #56633f;
+    --color-accent-2-400: #728157;
+    --color-accent-2-500: #8fa073;
+    --color-accent-2-600: #aebf92;
+    --color-accent-2-700: #ccdbb2;
+    --color-accent-2-800: #e1eecc;
+    --color-accent-2-900: #f0fae1;
   }
 
   body {
-    font-family: "Roboto", system-ui, sans-serif;
-    background-color: rgb(var(--md-surface));
-    color: rgb(var(--md-on-surface));
+    font-family: "Figtree", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: "Caprasimo", system-ui, sans-serif;
+    font-weight: 400;
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+  }
+
+  ::selection {
+    background: rgb(198 113 57 / 0.3);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  input,
+  textarea {
+    caret-color: var(--color-accent);
   }
 
   /* Custom scrollbar (WebKit) */
@@ -76,10 +137,51 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgb(var(--md-outline-variant));
+    background: var(--color-neutral-400);
     border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgb(var(--md-inverse-primary));
+    background: var(--color-accent);
+  }
+}
+
+/* Shared "Organic" component classes, mirrored from the design doc's system
+   (.btn, .tag, .input …) so every view composes the same pieces. */
+@layer components {
+  .kicker {
+    @apply text-[10px] uppercase tracking-[0.1em];
+  }
+
+  .tag {
+    @apply inline-flex items-center rounded-full px-2.5 py-[3px] text-[11px] tracking-[0.02em];
+  }
+  .tag-accent {
+    @apply bg-accent-100 text-accent-800;
+  }
+  .tag-accent-2 {
+    @apply bg-accent-2-100 text-accent-2-800;
+  }
+  .tag-neutral {
+    @apply bg-neutral-100 text-neutral-800;
+  }
+
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full px-5 py-2.5 font-display text-sm leading-tight text-ink transition-colors disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  .btn-primary {
+    @apply bg-accent text-bg hover:bg-accent-600 active:bg-accent-700;
+  }
+  .btn-secondary {
+    @apply border border-divider hover:bg-neutral-200 active:bg-neutral-300;
+  }
+  .btn-ghost {
+    @apply px-2 py-1.5 text-accent-700 hover:bg-accent-100;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-xs text-neutral-700;
+  }
+  .input {
+    @apply w-full min-h-[38px] rounded-full border border-divider bg-bg px-3.5 py-1.5 text-sm text-ink transition-colors placeholder:text-neutral-500 hover:border-neutral-500 focus:border-accent focus:outline-none;
   }
 }

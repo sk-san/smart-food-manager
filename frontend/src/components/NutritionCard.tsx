@@ -5,54 +5,71 @@ interface NutritionCardProps {
   value: number;
   goal: number;
   unit: string;
-  color: string;
-  icon: React.ReactNode;
+  /** Stroke color for the progress ring, e.g. "var(--color-accent-500)". */
+  ringColor: string;
+  /** Tailwind text color class for the kicker label. */
+  kickerClass: string;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }
 
+const RADIUS = 30;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+
+// Organic ring gauge card (design 1a): a round progress dial with the value
+// and goal beside it.
 const NutritionCard: React.FC<NutritionCardProps> = ({
   label,
   value,
   goal,
   unit,
-  color,
-  icon,
+  ringColor,
+  kickerClass,
   onMouseEnter,
   onMouseLeave,
 }) => {
-  const percentage = Math.min(100, Math.max(0, (value / goal) * 100));
+  const percentage = goal > 0 ? Math.min(100, Math.max(0, (value / goal) * 100)) : 0;
 
   return (
     <div
-      className="bg-surface-container rounded-[24px] p-4 flex flex-col relative overflow-hidden group hover:bg-surface-container-high transition-colors duration-300"
+      className="flex items-center gap-4 rounded-card bg-surface p-5 md:gap-5 md:px-6"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className="flex justify-between items-start mb-2 z-10">
-        <div className={`p-3 rounded-2xl ${color} bg-opacity-20 text-gray-900 dark:text-gray-100`}>{icon}</div>
-        <div className="text-right">
-          <span className="block text-headline-sm font-bold text-on-surface tabular-nums">{Math.round(value)}</span>
-          <span className="text-label-md text-on-surface-variant font-medium tabular-nums">
-            / {goal} {unit}
-          </span>
+      <svg width="76" height="76" viewBox="0 0 76 76" className="shrink-0" aria-hidden="true">
+        <circle cx="38" cy="38" r={RADIUS} fill="none" strokeWidth="9" className="stroke-neutral-200" />
+        <circle
+          cx="38"
+          cy="38"
+          r={RADIUS}
+          fill="none"
+          strokeWidth="9"
+          strokeLinecap="round"
+          stroke={ringColor}
+          strokeDasharray={`${(percentage / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`}
+          transform="rotate(-90 38 38)"
+          style={{ transition: "stroke-dasharray 1s ease-in-out" }}
+        />
+        <text
+          x="38"
+          y="43"
+          textAnchor="middle"
+          fontSize="15"
+          fontFamily="Caprasimo"
+          className="fill-ink tabular-nums"
+        >
+          {Math.round(percentage)}%
+        </text>
+      </svg>
+      <div>
+        <span className={`kicker ${kickerClass}`}>{label}</span>
+        <div className="mt-0.5 font-display text-2xl text-ink tabular-nums">
+          {Math.round(value)} {unit}
+        </div>
+        <div className="text-xs text-neutral-600 tabular-nums">
+          of {goal.toLocaleString("en-US")} {unit}
         </div>
       </div>
-
-      <div className="mt-auto z-10">
-        <h3 className="text-label-lg font-medium text-on-surface-variant">{label}</h3>
-        <div className="w-full bg-outline-variant h-2 rounded-full mt-2 overflow-hidden">
-          <div
-            className={`h-full rounded-full ${color}`}
-            style={{ width: `${percentage}%`, transition: "width 1s ease-in-out" }}
-          />
-        </div>
-      </div>
-
-      {/* Subtle decorative circle background */}
-      <div
-        className={`absolute -bottom-8 -right-8 w-24 h-24 rounded-full ${color} opacity-10 pointer-events-none group-hover:scale-110 transition-transform duration-500`}
-      />
     </div>
   );
 };

@@ -1,17 +1,5 @@
 import React from 'react';
-import {
-  Flame,
-  Beef,
-  Wheat,
-  Droplet,
-  TrendingUp,
-  Zap,
-  Bone,
-  Dumbbell,
-  ChevronRight,
-  MoreVertical
-} from 'lucide-react';
-import { AreaChart, Area, ResponsiveContainer } from 'recharts';
+import { ChevronRight, TrendingUp } from 'lucide-react';
 import NutritionCard from './NutritionCard';
 import { FoodEntry, DailyGoal, NutritionData } from '../types/nutrition';
 
@@ -23,6 +11,17 @@ interface DashboardViewProps {
   onHoverEnd: () => void;
 }
 
+// Chart geometry for the "This week" card (design 1a): bars on a 240x130
+// canvas, with the calorie goal drawn as a dashed line 90px above the base.
+const CHART_BASE_Y = 120;
+const CHART_GOAL_HEIGHT = 90;
+const BAR_WIDTH = 30;
+const BAR_XS = [14, 60, 106, 152, 198];
+
+// Mock intake for the four days before today — real aggregation is a
+// follow-up once entries persist through the backend.
+const PREVIOUS_DAYS_KCAL = [1850, 2140, 1980, 2230];
+
 const DashboardView: React.FC<DashboardViewProps> = ({
   todayTotals,
   goals,
@@ -30,210 +29,263 @@ const DashboardView: React.FC<DashboardViewProps> = ({
   onHoverStart,
   onHoverEnd
 }) => {
+  const now = new Date();
+  const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const monthDay = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+
+  const calories = Math.round(todayTotals.calories);
+  const goalCalories = goals.calories;
+  const remaining = goalCalories - calories;
+  const onTrack = calories <= goalCalories;
+  const progressPct = goalCalories > 0 ? Math.min(100, (calories / goalCalories) * 100) : 0;
+
+  const weekValues = [...PREVIOUS_DAYS_KCAL, todayTotals.calories];
+  const dayLabels = weekValues.map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (weekValues.length - 1 - i));
+    return d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2);
+  });
+  const barHeight = (kcal: number) =>
+    Math.max(4, Math.min(112, (kcal / goalCalories) * CHART_GOAL_HEIGHT));
+
+  const minerals = [
+    { label: 'Sodium', value: todayTotals.sodium, goal: goals.sodium, barClass: 'bg-accent-500' },
+    { label: 'Calcium', value: todayTotals.calcium, goal: goals.calcium, barClass: 'bg-neutral-500' },
+    { label: 'Iron', value: todayTotals.iron, goal: goals.iron, barClass: 'bg-accent-2-600' },
+  ];
+
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-5 duration-500 md:gap-6">
       {/* Header */}
-      <header className="flex justify-between items-center mb-8 pt-2">
-        <div>
-          <h1 className="text-display-sm text-on-surface font-normal tracking-tight">Today</h1>
-          <p className="text-on-surface-variant text-body-md mt-1">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
-        </div>
-        <div className="w-10 h-10 rounded-full bg-primary text-on-primary flex items-center justify-center font-bold text-sm shadow-md">
-          JD
-        </div>
+      <header className="pt-2">
+        <h1 className="text-4xl text-ink md:text-[44px]">{weekday}, at the table</h1>
+        <p className="mt-1.5 text-sm text-neutral-600 tabular-nums">
+          {monthDay} · {calories.toLocaleString('en-US')} of {goalCalories.toLocaleString('en-US')} kcal logged
+          {onTrack
+            ? remaining > 0
+              ? ` — ${remaining.toLocaleString('en-US')} kcal to go.`
+              : ' — goal reached.'
+            : ` — over by ${Math.abs(remaining).toLocaleString('en-US')} kcal.`}
+        </p>
       </header>
 
-      {/* Hero Section */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Calories Hero */}
-          <div
-              className="lg:col-span-2 bg-hero text-white rounded-[32px] p-8 relative overflow-hidden flex flex-col justify-between shadow-lg transition-transform hover:scale-[1.01]"
-              onMouseEnter={onHoverStart}
-              onMouseLeave={onHoverEnd}
-          >
-              <div className="z-10 flex justify-between items-start">
-                  <div>
-                      <h2 className="text-headline-md font-normal opacity-90">Calories</h2>
-                      <p className="text-white/70 mt-1 tabular-nums">Daily Limit: {goals.calories}</p>
-                  </div>
-                  <div className="bg-white/10 p-3 rounded-full backdrop-blur-md">
-                      <Flame className="text-hero-accent" size={32} />
-                  </div>
-              </div>
-
-              <div className="z-10 mt-8 flex items-end gap-2">
-                  <span className="text-7xl font-bold tracking-tighter tabular-nums">{Math.round(todayTotals.calories)}</span>
-                  <span className="text-headline-sm opacity-60 mb-2">kcal</span>
-              </div>
-
-              <div className="mt-6 z-10">
-                  <div className="flex justify-between text-body-md opacity-80 mb-2">
-                      <span>Progress</span>
-                      <span className="tabular-nums">{Math.round((todayTotals.calories / goals.calories) * 100)}%</span>
-                  </div>
-                  <div className="w-full bg-white/20 h-3 rounded-full overflow-hidden">
-                      <div
-                          className="h-full bg-hero-accent rounded-full transition-all duration-1000 ease-out"
-                          style={{ width: `${Math.min(100, (todayTotals.calories / goals.calories) * 100)}%` }}
-                      />
-                  </div>
-              </div>
-
-              {/* Decorative blobs (fixed brand colors, independent of theme) */}
-              <div className="absolute -top-20 -right-20 w-80 h-80 bg-[#6750a4] rounded-full blur-3xl opacity-50" />
-              <div className="absolute -bottom-20 -left-20 w-60 h-60 bg-[#eaddff] rounded-full blur-3xl opacity-20" />
-          </div>
-
-          {/* Quick Chart */}
-          <div
-              className="bg-primary-container rounded-[32px] p-6 flex flex-col shadow-sm transition-transform hover:scale-[1.01]"
-              onMouseEnter={onHoverStart}
-              onMouseLeave={onHoverEnd}
-          >
-              <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-on-primary-container text-title-md font-medium">Activity</h3>
-                  <TrendingUp size={20} className="text-on-primary-container" />
-              </div>
-              <div className="flex-1 min-h-[160px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={[
-                          { name: 'M', val: 1800 },
-                          { name: 'T', val: 2100 },
-                          { name: 'W', val: 1950 },
-                          { name: 'T', val: 2200 },
-                          { name: 'F', val: todayTotals.calories },
-                      ]}>
-                           <defs>
-                              <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="rgb(var(--md-primary))" stopOpacity={0.3}/>
-                              <stop offset="95%" stopColor="rgb(var(--md-primary))" stopOpacity={0}/>
-                              </linearGradient>
-                          </defs>
-                          <Area type="monotone" dataKey="val" stroke="rgb(var(--md-primary))" strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" />
-                      </AreaChart>
-                  </ResponsiveContainer>
-              </div>
-              <p className="text-on-surface-variant text-body-md mt-2 text-center">Calories over last 5 days</p>
-          </div>
-      </section>
-
-      {/* Macros Grid */}
-      <section className="mb-8">
-          <h3 className="text-title-lg text-on-surface font-normal mb-4 px-1">Macros</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <NutritionCard
-                  label="Protein"
-                  value={todayTotals.protein}
-                  goal={goals.protein}
-                  unit="g"
-                  color="bg-rose-400"
-                  icon={<Beef size={20} />}
-                  onMouseEnter={onHoverStart}
-                  onMouseLeave={onHoverEnd}
-              />
-              <NutritionCard
-                  label="Carbs"
-                  value={todayTotals.carbs}
-                  goal={goals.carbs}
-                  unit="g"
-                  color="bg-amber-400"
-                  icon={<Wheat size={20} />}
-                  onMouseEnter={onHoverStart}
-                  onMouseLeave={onHoverEnd}
-              />
-              <NutritionCard
-                  label="Fat"
-                  value={todayTotals.fat}
-                  goal={goals.fat}
-                  unit="g"
-                  color="bg-teal-400"
-                  icon={<Droplet size={20} />}
-                  onMouseEnter={onHoverStart}
-                  onMouseLeave={onHoverEnd}
-              />
-          </div>
-      </section>
-
-      {/* Minerals Grid */}
-      <section className="mb-8">
-          <h3 className="text-title-lg text-on-surface font-normal mb-4 px-1">Minerals</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <NutritionCard
-                  label="Sodium"
-                  value={todayTotals.sodium}
-                  goal={goals.sodium}
-                  unit="mg"
-                  color="bg-cyan-400"
-                  icon={<Zap size={20} />}
-                  onMouseEnter={onHoverStart}
-                  onMouseLeave={onHoverEnd}
-              />
-              <NutritionCard
-                  label="Calcium"
-                  value={todayTotals.calcium}
-                  goal={goals.calcium}
-                  unit="mg"
-                  color="bg-slate-300"
-                  icon={<Bone size={20} />}
-                  onMouseEnter={onHoverStart}
-                  onMouseLeave={onHoverEnd}
-              />
-              <NutritionCard
-                  label="Iron"
-                  value={todayTotals.iron}
-                  goal={goals.iron}
-                  unit="mg"
-                  color="bg-red-300"
-                  icon={<Dumbbell size={20} />}
-                  onMouseEnter={onHoverStart}
-                  onMouseLeave={onHoverEnd}
-              />
-          </div>
-      </section>
-
-      {/* Recent Entries */}
-      <section
-          className="bg-surface-container-lowest rounded-[32px] p-6 md:p-8 shadow-sm border border-outline-variant transition-transform hover:scale-[1.005]"
+      {/* Calories hero + week chart */}
+      <section className="grid grid-cols-1 gap-5 lg:grid-cols-[1.6fr_1fr]">
+        <div
+          className="flex flex-col justify-between rounded-card bg-surface p-7 shadow-sm"
           onMouseEnter={onHoverStart}
           onMouseLeave={onHoverEnd}
-      >
-          <div className="flex justify-between items-center mb-6">
-              <h3 className="text-title-lg text-on-surface font-normal">Recent Logs</h3>
-              <button className="text-primary font-medium text-label-lg flex items-center hover:bg-primary-container/20 px-3 py-1 rounded-full transition-colors">
-                  View All <ChevronRight size={16} />
-              </button>
+        >
+          <div className="flex items-start justify-between">
+            <span className="kicker text-accent">Calories today</span>
+            {onTrack ? (
+              <span className="tag tag-accent-2">on track</span>
+            ) : (
+              <span className="tag tag-accent">over goal</span>
+            )}
           </div>
 
-          <div className="space-y-1">
-              {entries.slice().reverse().map((entry) => (
-                  <div key={entry.id} className="group flex items-center justify-between p-4 hover:bg-surface-container rounded-2xl transition-colors cursor-pointer border border-transparent hover:border-outline-variant">
-                      <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-medium text-lg">
-                              {entry.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div>
-                              <h4 className="text-on-surface font-medium text-body-lg leading-tight">{entry.name}</h4>
-                              <p className="text-on-surface-variant text-body-md mt-0.5">
-                                  {new Date(entry.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                              </p>
-                          </div>
-                      </div>
-                      <div className="flex items-center gap-6">
-                          <div className="text-right hidden sm:block">
-                              <span className="block font-bold text-on-surface tabular-nums">{entry.calories} kcal</span>
-                              <span className="text-label-md text-on-surface-variant tabular-nums">
-                                  P:{Math.round(entry.protein)} C:{Math.round(entry.carbs)} F:{Math.round(entry.fat)}
-                              </span>
-                          </div>
-                          <button className="text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-outline-variant rounded-full">
-                              <MoreVertical size={20} />
-                          </button>
-                      </div>
-                  </div>
-              ))}
+          <div className="mb-1.5 mt-4 flex items-baseline gap-2.5">
+            <span className="font-display text-6xl leading-none text-ink tabular-nums md:text-7xl">
+              {calories.toLocaleString('en-US')}
+            </span>
+            <span className="text-[17px] text-neutral-600 tabular-nums">
+              of {goalCalories.toLocaleString('en-US')} kcal
+            </span>
           </div>
+
+          <div className="mt-4">
+            <div className="h-4 overflow-hidden rounded-full bg-neutral-200">
+              <div
+                className="h-full rounded-full transition-all duration-1000 ease-out"
+                style={{
+                  width: `${progressPct}%`,
+                  background: 'linear-gradient(90deg, var(--color-accent-2-400), var(--color-accent-500))',
+                }}
+              />
+            </div>
+            <div className="mt-2 flex justify-between text-xs text-neutral-600 tabular-nums">
+              <span>
+                {entries.length === 0
+                  ? 'Nothing logged yet'
+                  : `${entries.length} ${entries.length === 1 ? 'item' : 'items'} logged`}
+              </span>
+              <span>
+                {remaining >= 0
+                  ? `${remaining.toLocaleString('en-US')} kcal left`
+                  : `${Math.abs(remaining).toLocaleString('en-US')} kcal over`}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="rounded-card bg-surface p-6 shadow-sm md:px-7"
+          onMouseEnter={onHoverStart}
+          onMouseLeave={onHoverEnd}
+        >
+          <div className="flex items-center justify-between">
+            <span className="kicker text-accent-2-700">This week</span>
+            <TrendingUp size={16} strokeWidth={2.75} className="text-accent-2-700" />
+          </div>
+          <svg viewBox="0 0 240 130" className="mt-1.5 h-auto w-full" role="img" aria-label="Calories per day this week">
+            <line
+              x1="8"
+              y1={CHART_BASE_Y - CHART_GOAL_HEIGHT}
+              x2="232"
+              y2={CHART_BASE_Y - CHART_GOAL_HEIGHT}
+              strokeWidth="1.5"
+              strokeDasharray="3 5"
+              className="stroke-neutral-400"
+            />
+            {weekValues.map((kcal, i) => {
+              const h = barHeight(kcal);
+              const isToday = i === weekValues.length - 1;
+              const fill = isToday
+                ? 'var(--color-accent-500)'
+                : kcal >= goalCalories
+                  ? 'var(--color-accent-2-400)'
+                  : 'var(--color-accent-2-300)';
+              return (
+                <rect
+                  key={i}
+                  x={BAR_XS[i]}
+                  y={CHART_BASE_Y - h}
+                  width={BAR_WIDTH}
+                  height={h}
+                  rx="10"
+                  fill={fill}
+                />
+              );
+            })}
+          </svg>
+          <div className="flex justify-between px-2.5 text-[11px] text-neutral-600">
+            {dayLabels.map((label, i) => (
+              <span key={i}>{label}</span>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-neutral-600 tabular-nums">
+            Dashed line is your {goalCalories.toLocaleString('en-US')} goal.
+          </p>
+        </div>
+      </section>
+
+      {/* Macro rings */}
+      <section className="grid grid-cols-1 gap-5 md:grid-cols-3">
+        <NutritionCard
+          label="Protein"
+          value={todayTotals.protein}
+          goal={goals.protein}
+          unit="g"
+          ringColor="var(--color-accent-500)"
+          kickerClass="text-accent"
+          onMouseEnter={onHoverStart}
+          onMouseLeave={onHoverEnd}
+        />
+        <NutritionCard
+          label="Carbs"
+          value={todayTotals.carbs}
+          goal={goals.carbs}
+          unit="g"
+          ringColor="var(--color-accent-2-500)"
+          kickerClass="text-accent-2-700"
+          onMouseEnter={onHoverStart}
+          onMouseLeave={onHoverEnd}
+        />
+        <NutritionCard
+          label="Fat"
+          value={todayTotals.fat}
+          goal={goals.fat}
+          unit="g"
+          ringColor="var(--color-accent-700)"
+          kickerClass="text-accent-700"
+          onMouseEnter={onHoverStart}
+          onMouseLeave={onHoverEnd}
+        />
+      </section>
+
+      {/* Recent logs + minerals */}
+      <section className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1.6fr_1fr]">
+        <div
+          className="rounded-card bg-surface p-6 shadow-sm md:px-7"
+          onMouseEnter={onHoverStart}
+          onMouseLeave={onHoverEnd}
+        >
+          <div className="mb-1.5 flex items-center justify-between">
+            <h3 className="text-[21px] text-ink">Recent logs</h3>
+            <button className="btn btn-ghost text-[13px]">
+              View all <ChevronRight size={14} strokeWidth={2.75} />
+            </button>
+          </div>
+
+          {entries.length === 0 ? (
+            <p className="py-6 text-center text-[13px] text-neutral-600">
+              Nothing on the table yet — tap <span className="font-semibold text-accent-700">Log food</span> to
+              start today&apos;s ledger.
+            </p>
+          ) : (
+            <div className="divide-y divide-divider">
+              {entries
+                .slice()
+                .reverse()
+                .map((entry, index) => (
+                  <div key={entry.id} className="flex items-center gap-4 py-3">
+                    <div
+                      className={`grid h-11 w-11 shrink-0 place-items-center rounded-full font-display text-lg ${
+                        index % 2 === 0
+                          ? 'bg-accent-2-200 text-accent-2-800'
+                          : 'bg-accent-200 text-accent-800'
+                      }`}
+                    >
+                      {entry.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[15px] font-semibold text-ink">{entry.name}</div>
+                      <div className="text-xs text-neutral-600">
+                        {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                    <div className="hidden gap-1.5 sm:flex">
+                      <span className="tag tag-accent tabular-nums">P {Math.round(entry.protein)}</span>
+                      <span className="tag tag-accent-2 tabular-nums">C {Math.round(entry.carbs)}</span>
+                      <span className="tag tag-neutral tabular-nums">F {Math.round(entry.fat)}</span>
+                    </div>
+                    <div className="w-[88px] text-right font-display text-[17px] text-ink tabular-nums">
+                      {entry.calories.toLocaleString('en-US')} kcal
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-card bg-surface p-6 shadow-sm md:px-7">
+          <span className="kicker font-semibold text-accent-2-700">Minerals</span>
+          <div className="mt-3 flex flex-col gap-4">
+            {minerals.map(({ label, value, goal, barClass }) => {
+              const pct = goal > 0 ? Math.min(100, (value / goal) * 100) : 0;
+              return (
+                <div key={label}>
+                  <div className="mb-1.5 flex items-baseline justify-between">
+                    <span className="text-[13px] font-semibold text-ink">{label}</span>
+                    <span className="text-xs text-neutral-600 tabular-nums">
+                      {Math.round(value).toLocaleString('en-US')} / {goal.toLocaleString('en-US')} mg
+                    </span>
+                  </div>
+                  <div className="h-2.5 overflow-hidden rounded-full bg-neutral-200">
+                    <div
+                      className={`h-full rounded-full ${barClass}`}
+                      style={{ width: `${pct}%`, transition: 'width 1s ease-in-out' }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-4 text-xs text-neutral-600">
+            Targets come from your account goals — sodium reads as a limit, calcium and iron as minimums.
+          </p>
+        </div>
       </section>
     </div>
   );
