@@ -340,26 +340,26 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({ stats, goals, i
   }, []);
 
   return (
-    <div className="cmp fixed bottom-24 left-4 md:bottom-8 md:left-24 z-40 flex flex-col items-center gap-2 pointer-events-none">
+    <div className="cmp fixed bottom-24 left-4 md:bottom-8 md:left-8 z-40 flex flex-col items-center gap-2 pointer-events-none">
       <style>{CMP_STYLES}</style>
 
       {/* Speech Bubble */}
       <div
-        className={`pointer-events-auto relative bg-surface-container-lowest border border-outline-variant rounded-2xl p-3 shadow-lg max-w-[200px] mb-2 transform transition-all duration-300 origin-bottom ${
+        className={`pointer-events-auto relative bg-surface border border-divider rounded-2xl p-3 shadow-lg max-w-[200px] mb-2 transform transition-all duration-300 origin-bottom ${
           message && !isLookingAtScreen ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
         }`}
       >
-        <div className="text-body-md text-on-surface font-medium leading-tight">
+        <div className="text-[13px] text-ink font-medium leading-tight">
           {isTyping ? (
             <div className="flex gap-1 items-center h-5">
-              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
             </div>
           ) : message}
         </div>
         {/* Tail */}
-        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-surface-container-lowest border-b border-r border-outline-variant transform rotate-45" />
+        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-surface border-b border-r border-divider transform rotate-45" />
       </div>
 
       {/* Character — grab and stretch it */}
@@ -450,7 +450,7 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({ stats, goals, i
                 </svg>
               )}
               {p.type === 'note' && (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="#6750a4" className="drop-shadow-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="#c67139" className="drop-shadow-sm">
                   <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
                 </svg>
               )}
@@ -482,7 +482,7 @@ const CMP_STYLES = `
   will-change: transform;
 }
 .cmp-blob:focus-visible {
-  outline: 3px solid rgb(103 80 164 / 70%);
+  outline: 3px solid rgb(198 113 57 / 70%);
   outline-offset: 8px;
   border-radius: 42%;
 }
@@ -497,7 +497,7 @@ const CMP_STYLES = `
   left: 50%;
   z-index: 0;
   border-radius: 50%;
-  background: rgb(20 20 20 / 16%);
+  background: rgb(46 43 37 / 18%);
   filter: blur(8px);
   transform: translateX(-50%);
 }
@@ -510,7 +510,7 @@ const CMP_STYLES = `
   bottom: 27%;
   z-index: 2;
   border-radius: 50%;
-  background: radial-gradient(circle at 42% 38%, #f5f4f9 0%, #e7e4ef 58%, rgba(231, 228, 239, 0) 100%);
+  background: radial-gradient(circle at 42% 38%, #f7f1e4 0%, #e8dfcc 58%, rgba(232, 223, 204, 0) 100%);
   opacity: 0;
   transition: opacity 220ms ease;
 }
@@ -530,17 +530,17 @@ const CMP_STYLES = `
   display: block;
   overflow: hidden;
   z-index: 1;
-  border: 2px solid rgb(64 74 84 / 18%);
+  border: 2px solid rgb(100 92 80 / 24%);
   border-radius: 58% 42% 53% 47% / 50% 58% 42% 50%;
   background:
     radial-gradient(circle at var(--touch-x) var(--touch-y), rgb(255 255 255 / 78%) 0 8%, transparent 26%),
     radial-gradient(circle at 30% 22%, rgb(255 255 255 / 74%), transparent 26%),
-    radial-gradient(circle at 72% 78%, rgb(170 182 196 / 22%), transparent 30%),
-    linear-gradient(145deg, #f7f9fb, #ffffff 46%, #e9edf2);
+    radial-gradient(circle at 72% 78%, rgb(192 182 165 / 24%), transparent 30%),
+    linear-gradient(145deg, #fbf6ec, #fffdf7 46%, #ece2cf);
   box-shadow:
     inset 6px 7px 11px rgb(255 255 255 / 46%),
-    inset -8px -9px 14px rgb(128 145 164 / 22%),
-    0 8px 18px rgb(78 86 92 / 18%);
+    inset -8px -9px 14px rgb(130 121 106 / 24%),
+    0 8px 18px rgb(70 63 52 / 18%);
   transform: scale(var(--scale-x), var(--scale-y)) skew(var(--skew));
   transform-origin: var(--origin-x) var(--origin-y);
   transition:
@@ -554,8 +554,8 @@ const CMP_STYLES = `
   border-radius: 62% 38% 56% 44% / 44% 61% 39% 56%;
   box-shadow:
     inset 7px 8px 12px rgb(255 255 255 / 40%),
-    inset -10px -10px 16px rgb(128 145 164 / 26%),
-    0 12px 22px rgb(78 86 92 / 20%);
+    inset -10px -10px 16px rgb(130 121 106 / 28%),
+    0 12px 22px rgb(70 63 52 / 20%);
   transition: border-radius 120ms ease, box-shadow 120ms ease;
 }
 
@@ -610,14 +610,14 @@ const CMP_STYLES = `
 .cmp-blob.is-away .cmp-face-cheeks { opacity: 0; }
 .cmp-blob.is-away .cmp-face-away { opacity: 1; }
 
-.cmp-eye { fill: #1d1b20; }
+.cmp-eye { fill: #201e1d; }
 .cmp-eye-shine { fill: rgb(255 255 255 / 92%); }
-.cmp-smile { fill: none; stroke: #1d1b20; stroke-width: 3; stroke-linecap: round; }
-.cmp-squint { fill: none; stroke: #1d1b20; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
-.cmp-ooh { fill: #1d1b20; }
-.cmp-sideeye { fill: none; stroke: #1d1b20; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.cmp-smile { fill: none; stroke: #201e1d; stroke-width: 3; stroke-linecap: round; }
+.cmp-squint { fill: none; stroke: #201e1d; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.cmp-ooh { fill: #201e1d; }
+.cmp-sideeye { fill: none; stroke: #201e1d; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .cmp-cheek {
-  fill: rgb(255 183 178);
+  fill: rgb(255 198 165);
   transform-box: fill-box;
   transform-origin: center;
   transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1.2);
@@ -635,8 +635,8 @@ const CMP_STYLES = `
   transform-origin: 50% 100%;
   animation: cmp-sprout-sway 4.2s ease-in-out infinite;
 }
-.cmp-sprout svg { display: block; width: 100%; height: auto; overflow: visible; filter: drop-shadow(0 3px 4px rgb(62 72 20 / 18%)); }
-.cmp-sprout-leaf { fill: #74b843; stroke: #4d7f24; stroke-width: 3; stroke-linejoin: round; }
+.cmp-sprout svg { display: block; width: 100%; height: auto; overflow: visible; filter: drop-shadow(0 3px 4px rgb(61 71 43 / 20%)); }
+.cmp-sprout-leaf { fill: #8fa073; stroke: #56633f; stroke-width: 3; stroke-linejoin: round; }
 
 .cmp-soft.cmp-rebounding { animation: cmp-rebound 620ms cubic-bezier(0.2, 0.8, 0.16, 1.25); }
 

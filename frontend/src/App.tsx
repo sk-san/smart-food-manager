@@ -1,11 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
-import { LayoutDashboard, Utensils, Settings, Plus, TrendingUp } from "lucide-react";
+import { LayoutGrid, Leaf, Plus, TrendingUp, User } from "lucide-react";
 import AddEntryModal from "./components/AddEntryModal";
 import CompanionCharacter from "./components/CompanionCharacter";
 import DashboardView from "./components/DashboardView";
+import LoginView from "./components/LoginView";
 import StatsView from "./components/StatsView";
 import SettingsView from "./components/SettingsView";
-import { FoodEntry, DailyGoal } from "./types/nutrition";
+import {
+  FoodEntry,
+  DailyGoal,
+  GuestRole,
+  SUGGESTED_GOALS,
+  DEFAULT_PROFILE,
+  GUEST_PROFILES,
+} from "./types/nutrition";
 import { logNavigation, logScreenView } from "./telemetry/events";
 
 type Tab = "dashboard" | "history" | "settings";
@@ -16,28 +24,25 @@ type Tab = "dashboard" | "history" | "settings";
 const INITIAL_ENTRIES: FoodEntry[] = [
  ];
 
-const DEFAULT_GOALS: DailyGoal = {
-  calories: 2200,
-  protein: 150,
-  carbs: 250,
-  fat: 70,
-  sodium: 2300,
-  calcium: 1000,
-  iron: 18,
-};
-
 const TAB_LABELS: Record<Tab, string> = {
-  dashboard: "Dash",
+  dashboard: "Today",
   history: "Stats",
-  settings: "Prefs",
+  settings: "Account",
 };
 
 function App() {
   const [entries, setEntries] = useState<FoodEntry[]>(INITIAL_ENTRIES);
-  const [goals, setGoals] = useState<DailyGoal>(DEFAULT_GOALS);
+  const [goals, setGoals] = useState<DailyGoal>(SUGGESTED_GOALS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [isLookingAtContent, setIsLookingAtContent] = useState(false);
+  // Template-only sign-in screen (design 2c): "Sign out" shows it, "Sign in"
+  // returns. No real auth behind it yet — the backend JWT flow is a follow-up.
+  const [showLogin, setShowLogin] = useState(false);
+  // Set by the login screen's guest bypass; null means the demo account.
+  const [guestRole, setGuestRole] = useState<GuestRole | null>(null);
+
+  const profile = guestRole ? GUEST_PROFILES[guestRole] : DEFAULT_PROFILE;
   // Initial value comes from the pre-paint script in index.html, which
   // resolves localStorage + the system preference before React mounts.
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -92,38 +97,89 @@ function App() {
   const handleContentHoverStart = () => setIsLookingAtContent(true);
   const handleContentHoverEnd = () => setIsLookingAtContent(false);
 
-  const navItems: { tab: Tab; icon: typeof LayoutDashboard }[] = [
-    { tab: "dashboard", icon: LayoutDashboard },
+  const handleSignOut = () => {
+    logNavigation(activeTab, "login");
+    setShowLogin(true);
+    setGuestRole(null);
+    logScreenView("login");
+  };
+
+  const enterApp = (from: string) => {
+    setShowLogin(false);
+    setActiveTab("dashboard");
+    logNavigation(from, "dashboard");
+    logScreenView("dashboard");
+  };
+
+  const handleSignIn = () => enterApp("login");
+
+  // Auth bypass for testing: no credentials, just a presentational role.
+  const handleGuestLogin = (role: GuestRole) => {
+    setGuestRole(role);
+    enterApp(`login:guest-${role}`);
+  };
+
+  const navItems: { tab: Tab; icon: typeof LayoutGrid }[] = [
+    { tab: "dashboard", icon: LayoutGrid },
     { tab: "history", icon: TrendingUp },
-    { tab: "settings", icon: Settings },
+    { tab: "settings", icon: User },
   ];
 
-  return (
-    <div className="min-h-screen bg-surface flex">
-      {/* Navigation Rail (Desktop) */}
-      <aside className="hidden md:flex flex-col w-24 bg-surface-container border-r border-outline-variant items-center py-8 gap-8 fixed h-full z-20">
-        <div className="w-12 h-12 bg-primary-container rounded-xl flex items-center justify-center mb-4">
-          <Utensils className="text-on-primary-container" size={24} />
-        </div>
+  if (showLogin) {
+    return <LoginView onSignIn={handleSignIn} onGuestLogin={handleGuestLogin} />;
+  }
 
-        <nav className="flex flex-col gap-6 w-full items-center">
-          {navItems.map(({ tab, icon: Icon }) => (
+  const brand = (
+    <div className="flex items-center gap-2.5">
+      <div className="grid h-9 w-9 place-items-center rounded-full bg-accent-2-300">
+        <Leaf size={18} strokeWidth={2.75} className="text-accent-2-800" />
+      </div>
+      <span className="font-display text-[19px] text-ink">Nutri</span>
+    </div>
+  );
+
+  const avatar = (
+    <div className="grid h-9 w-9 place-items-center rounded-full bg-accent-300 text-[13px] font-semibold text-accent-900">
+      {profile.initials}
+    </div>
+  );
+
+  return (
+    <div className="flex min-h-screen flex-col bg-bg">
+      {/* Top navigation (desktop) */}
+      <header className="mx-auto hidden w-full max-w-6xl items-center gap-7 px-8 pt-7 md:flex">
+        <div className="mr-auto">{brand}</div>
+        <nav className="flex items-center gap-6">
+          {navItems.map(({ tab }) => (
             <button
               key={tab}
               onClick={() => handleTabChange(tab)}
-              className={`flex flex-col items-center gap-1 w-16 py-2 rounded-xl transition-all ${
-                activeTab === tab ? "bg-secondary-container text-on-surface" : "text-on-surface-variant hover:bg-outline-variant/50"
+              aria-current={activeTab === tab ? "page" : undefined}
+              className={`text-[13px] transition-colors ${
+                activeTab === tab
+                  ? "font-semibold text-accent-700"
+                  : "text-neutral-600 hover:text-ink"
               }`}
             >
-              <Icon size={24} strokeWidth={activeTab === tab ? 2.5 : 2} />
-              <span className="text-[10px] font-medium">{TAB_LABELS[tab]}</span>
+              {TAB_LABELS[tab]}
             </button>
           ))}
         </nav>
-      </aside>
+        <button onClick={() => setIsModalOpen(true)} className="btn btn-primary shadow-sm">
+          <Plus size={15} strokeWidth={2.75} />
+          Log food
+        </button>
+        {avatar}
+      </header>
+
+      {/* Compact top bar (mobile) */}
+      <div className="flex items-center justify-between px-5 pt-5 md:hidden">
+        {brand}
+        {avatar}
+      </div>
 
       {/* Main Content */}
-      <main className="flex-1 md:ml-24 pb-24 md:pb-8 p-4 md:p-8 max-w-7xl mx-auto w-full relative">
+      <main className="relative mx-auto w-full max-w-6xl flex-1 px-5 pb-32 pt-5 md:px-8 md:pb-14 md:pt-6">
         {activeTab === "dashboard" ? (
           <DashboardView
             todayTotals={todayTotals}
@@ -135,38 +191,43 @@ function App() {
         ) : activeTab === "history" ? (
           <StatsView entries={entries} goals={goals} />
         ) : (
-          <SettingsView goals={goals} onUpdateGoals={setGoals} isDark={isDark} onToggleDark={handleToggleDark} />
+          <SettingsView
+            goals={goals}
+            onUpdateGoals={setGoals}
+            isDark={isDark}
+            onToggleDark={handleToggleDark}
+            onSignOut={handleSignOut}
+            profile={profile}
+          />
         )}
 
         {/* Cute AI Character - Persistent across views */}
         <CompanionCharacter stats={todayTotals} goals={goals} isLookingAtScreen={isLookingAtContent} />
       </main>
 
-      {/* Floating Action Button (FAB) */}
+      {/* Floating Action Button (mobile — desktop logs from the header) */}
       <button
         onClick={() => setIsModalOpen(true)}
-        className="fixed bottom-24 right-6 md:bottom-10 md:right-10 w-16 h-16 bg-primary hover:bg-primary/90 text-on-primary rounded-[20px] shadow-xl shadow-primary/30 flex items-center justify-center transition-all hover:scale-105 active:scale-95 z-50 group"
+        className="fixed bottom-24 right-5 z-50 grid h-14 w-14 place-items-center rounded-full bg-accent text-bg shadow-md transition-transform hover:scale-105 active:scale-95 md:hidden"
         aria-label="Log food"
       >
-        <Plus size={32} className="group-hover:rotate-90 transition-transform duration-300" />
+        <Plus size={26} strokeWidth={2.75} />
       </button>
 
       <AddEntryModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onAdd={handleAddEntries} />
 
       {/* Mobile Bottom Nav */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 h-20 bg-surface-container border-t border-outline-variant flex justify-around items-center px-4 z-40">
+      <div className="fixed inset-x-0 bottom-0 z-40 flex h-20 items-center justify-around border-t border-divider bg-surface px-4 md:hidden">
         {navItems.map(({ tab, icon: Icon }) => (
           <button
             key={tab}
             onClick={() => handleTabChange(tab)}
-            className={`flex flex-col items-center gap-1 p-2 rounded-full transition-all ${
-              activeTab === tab ? "text-on-surface" : "text-on-surface-variant"
+            className={`flex flex-col items-center gap-1 p-2 transition-colors ${
+              activeTab === tab ? "text-accent-700" : "text-neutral-500"
             }`}
           >
-            <div className={`px-5 py-1 rounded-full ${activeTab === tab ? "bg-secondary-container" : ""}`}>
-              <Icon size={24} strokeWidth={activeTab === tab ? 2.5 : 2} />
-            </div>
-            <span className="text-xs font-medium">{TAB_LABELS[tab]}</span>
+            <Icon size={23} strokeWidth={2.75} />
+            <span className="text-[11px] font-semibold">{TAB_LABELS[tab]}</span>
           </button>
         ))}
       </div>

@@ -1,23 +1,60 @@
 import React, { useState } from 'react';
-import { DailyGoal } from '../types/nutrition';
-import { 
-  User, 
-  Bell, 
-  Moon, 
-  Target, 
-  Save, 
-  ShieldAlert,
-  Volume2
-} from 'lucide-react';
+import { DailyGoal, SUGGESTED_GOALS, UserProfile } from '../types/nutrition';
+import { Bell, LogOut, Moon, Volume2 } from 'lucide-react';
 
 interface SettingsViewProps {
   goals: DailyGoal;
   onUpdateGoals: (goals: DailyGoal) => void;
   isDark: boolean;
   onToggleDark: () => void;
+  /** Shows the template sign-in screen — purely presentational, no real auth. */
+  onSignOut: () => void;
+  /** Identity to display — the demo account, or a guest role from the bypass. */
+  profile: UserProfile;
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ goals, onUpdateGoals, isDark, onToggleDark }) => {
+// Organic pill switch (visual only — interactivity comes from the row).
+const Switch: React.FC<{ on: boolean }> = ({ on }) => (
+  <div
+    className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+      on ? 'bg-accent-2-500' : 'bg-neutral-300'
+    }`}
+  >
+    <div
+      className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-bg transition-all ${
+        on ? 'left-[23px]' : 'left-[3px]'
+      }`}
+    />
+  </div>
+);
+
+interface GoalFieldProps {
+  label: string;
+  value: number;
+  onChange: (value: string) => void;
+}
+
+const GoalField: React.FC<GoalFieldProps> = ({ label, value, onChange }) => (
+  <div>
+    <label className="field-label">{label}</label>
+    <input
+      type="number"
+      aria-label={label}
+      className="input tabular-nums"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  </div>
+);
+
+const SettingsView: React.FC<SettingsViewProps> = ({
+  goals,
+  onUpdateGoals,
+  isDark,
+  onToggleDark,
+  onSignOut,
+  profile,
+}) => {
   const [localGoals, setLocalGoals] = useState<DailyGoal>(goals);
   const [isDirty, setIsDirty] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
@@ -25,6 +62,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ goals, onUpdateGoals, isDar
   const handleChange = (field: keyof DailyGoal, value: string) => {
     const numValue = parseInt(value) || 0;
     setLocalGoals(prev => ({ ...prev, [field]: numValue }));
+    setIsDirty(true);
+  };
+
+  const handleReset = () => {
+    setLocalGoals(SUGGESTED_GOALS);
     setIsDirty(true);
   };
 
@@ -36,174 +78,119 @@ const SettingsView: React.FC<SettingsViewProps> = ({ goals, onUpdateGoals, isDar
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
-      <header className="flex justify-between items-center mb-8 pt-2">
-        <div>
-          <h1 className="text-display-sm text-on-surface font-normal tracking-tight">Preferences</h1>
-          <p className="text-on-surface-variant text-body-md mt-1">Manage your goals and app settings</p>
-        </div>
+    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-5 pb-20 duration-500 md:gap-6">
+      <header className="pt-2">
+        <h1 className="text-4xl text-ink md:text-[44px]">Your account</h1>
+        <p className="mt-1.5 text-sm text-neutral-600">
+          Goals feed every gauge on the dashboard — change them here.
+        </p>
       </header>
 
-      {/* Profile Section (Mock) */}
-      <section className="bg-surface-container-lowest rounded-[24px] p-6 mb-6 border border-outline-variant shadow-sm">
-        <h2 className="text-title-lg font-normal text-on-surface mb-4 flex items-center gap-2">
-            <User size={24} className="text-primary" />
-            Profile
-        </h2>
-        <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-primary text-on-primary flex items-center justify-center text-headline-sm font-medium">
-                JD
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_1.9fr]">
+        {/* Left column: profile + app settings */}
+        <div className="flex flex-col gap-4">
+          <section className="flex flex-col items-center gap-2.5 rounded-card bg-surface p-7 text-center shadow-sm">
+            <div className="grid h-[88px] w-[88px] place-items-center rounded-full bg-accent-300 font-display text-[32px] text-accent-900">
+              {profile.initials}
             </div>
-            <div className="flex-1">
-                <h3 className="text-title-md font-medium text-on-surface">John Doe</h3>
-                <p className="text-on-surface-variant">john.doe@example.com</p>
+            <div>
+              <div className="font-display text-[23px] text-ink">{profile.name}</div>
+              <div className="mt-0.5 text-[13px] text-neutral-600">{profile.email}</div>
             </div>
-            <button className="text-primary font-medium px-4 py-2 hover:bg-surface-container rounded-full transition-colors">
-                Edit
-            </button>
-        </div>
-      </section>
+            <div className="flex flex-wrap justify-center gap-1.5">
+              <span className="tag tag-accent-2">5-day streak</span>
+              <span className="tag tag-neutral">{profile.tag}</span>
+            </div>
+            <div className="mt-1.5 flex flex-wrap justify-center gap-2.5">
+              <button className="btn btn-secondary">Edit profile</button>
+              <button onClick={onSignOut} className="btn btn-secondary text-accent-700">
+                <LogOut size={15} strokeWidth={2.5} />
+                Log out
+              </button>
+            </div>
+          </section>
 
-      {/* Goals Section */}
-      <section className="bg-surface-container-lowest rounded-[24px] p-6 mb-6 border border-outline-variant shadow-sm relative overflow-hidden">
-         <div className="flex justify-between items-center mb-6">
-            <h2 className="text-title-lg font-normal text-on-surface flex items-center gap-2">
-                <Target size={24} className="text-primary" />
-                Daily Goals
-            </h2>
-            {isDirty && (
-                <button 
-                    onClick={handleSave}
-                    className="bg-primary text-on-primary px-6 py-2 rounded-full font-medium flex items-center gap-2 shadow-md hover:shadow-lg transition-all animate-in fade-in"
-                >
-                    <Save size={18} />
-                    Save Changes
-                </button>
-            )}
-            {showSaved && (
-                <span className="text-green-600 font-medium animate-in fade-in">Saved!</span>
-            )}
-         </div>
-
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-                <div>
-                    <label className="block text-label-lg font-medium text-on-surface-variant mb-1">Daily Calories</label>
-                    <div className="relative">
-                        <input 
-                            type="number" 
-                            value={localGoals.calories}
-                            onChange={(e) => handleChange('calories', e.target.value)}
-                            className="w-full bg-surface-container border-b-2 border-outline hover:border-on-surface-variant focus:border-primary rounded-t-lg px-4 py-3 text-on-surface outline-none transition-colors tabular-nums"
-                        />
-                        <span className="absolute right-4 top-3 text-on-surface-variant">kcal</span>
-                    </div>
-                </div>
-                <div>
-                    <label className="block text-label-lg font-medium text-on-surface-variant mb-1">Protein Goal</label>
-                    <div className="relative">
-                        <input 
-                            type="number" 
-                            value={localGoals.protein}
-                            onChange={(e) => handleChange('protein', e.target.value)}
-                            className="w-full bg-surface-container border-b-2 border-outline hover:border-on-surface-variant focus:border-primary rounded-t-lg px-4 py-3 text-on-surface outline-none transition-colors tabular-nums"
-                        />
-                        <span className="absolute right-4 top-3 text-on-surface-variant">g</span>
-                    </div>
-                </div>
-                 <div>
-                    <label className="block text-label-lg font-medium text-on-surface-variant mb-1">Carbs Goal</label>
-                    <div className="relative">
-                        <input 
-                            type="number" 
-                            value={localGoals.carbs}
-                            onChange={(e) => handleChange('carbs', e.target.value)}
-                            className="w-full bg-surface-container border-b-2 border-outline hover:border-on-surface-variant focus:border-primary rounded-t-lg px-4 py-3 text-on-surface outline-none transition-colors tabular-nums"
-                        />
-                        <span className="absolute right-4 top-3 text-on-surface-variant">g</span>
-                    </div>
-                </div>
-            </div>
-            
-             <div className="space-y-4">
-                <div>
-                    <label className="block text-label-lg font-medium text-on-surface-variant mb-1">Fat Goal</label>
-                    <div className="relative">
-                        <input 
-                            type="number" 
-                            value={localGoals.fat}
-                            onChange={(e) => handleChange('fat', e.target.value)}
-                            className="w-full bg-surface-container border-b-2 border-outline hover:border-on-surface-variant focus:border-primary rounded-t-lg px-4 py-3 text-on-surface outline-none transition-colors tabular-nums"
-                        />
-                        <span className="absolute right-4 top-3 text-on-surface-variant">g</span>
-                    </div>
-                </div>
-                 <div>
-                    <label className="block text-label-lg font-medium text-on-surface-variant mb-1">Sodium Limit</label>
-                    <div className="relative">
-                        <input 
-                            type="number" 
-                            value={localGoals.sodium}
-                            onChange={(e) => handleChange('sodium', e.target.value)}
-                            className="w-full bg-surface-container border-b-2 border-outline hover:border-on-surface-variant focus:border-primary rounded-t-lg px-4 py-3 text-on-surface outline-none transition-colors tabular-nums"
-                        />
-                        <span className="absolute right-4 top-3 text-on-surface-variant">mg</span>
-                    </div>
-                </div>
-            </div>
-         </div>
-      </section>
-
-      {/* App Settings */}
-      <section className="bg-surface-container-lowest rounded-[24px] overflow-hidden border border-outline-variant shadow-sm mb-6">
-        <h2 className="text-title-lg font-normal text-on-surface p-6 pb-2 flex items-center gap-2">
-             <ShieldAlert size={24} className="text-primary" />
-             App Settings
-        </h2>
-        
-        <div className="divide-y divide-outline-variant">
+          <section className="rounded-card bg-surface px-6 py-2 shadow-sm">
             <button
-                onClick={onToggleDark}
-                role="switch"
-                aria-checked={isDark}
-                className="w-full p-4 px-6 flex items-center justify-between hover:bg-surface-container transition-colors cursor-pointer"
+              onClick={onToggleDark}
+              role="switch"
+              aria-checked={isDark}
+              className="flex w-full items-center gap-3.5 py-3.5 text-left"
             >
-                <div className="flex items-center gap-4">
-                    <Moon size={20} className="text-on-surface-variant" />
-                    <span className="text-on-surface font-medium">Dark Mode</span>
-                </div>
-                <div className={`w-12 h-6 rounded-full relative transition-colors ${isDark ? "bg-primary-container" : "bg-outline-variant"}`}>
-                    <div
-                        className={`w-4 h-4 rounded-full absolute top-1 transition-all ${
-                            isDark ? "bg-primary left-7" : "bg-outline left-1"
-                        }`}
-                    />
-                </div>
+              <Moon size={20} strokeWidth={2.5} className="text-accent-2-700" />
+              <span className="flex-1 text-sm font-semibold text-ink">Dark mode</span>
+              <Switch on={isDark} />
             </button>
-            <div className="p-4 px-6 flex items-center justify-between hover:bg-surface-container transition-colors cursor-pointer">
-                <div className="flex items-center gap-4">
-                    <Bell size={20} className="text-on-surface-variant" />
-                    <span className="text-on-surface font-medium">Notifications</span>
-                </div>
-                 <div className="w-12 h-6 bg-primary-container rounded-full relative">
-                    <div className="w-4 h-4 bg-primary rounded-full absolute top-1 right-1" />
-                </div>
+            <div className="flex items-center gap-3.5 border-t border-divider py-3.5">
+              <Bell size={20} strokeWidth={2.5} className="text-accent-2-700" />
+              <span className="flex-1 text-sm font-semibold text-ink">Reminders</span>
+              <span className="text-xs text-neutral-600">8 am · 7 pm</span>
+              <Switch on />
             </div>
-             <div className="p-4 px-6 flex items-center justify-between hover:bg-surface-container transition-colors cursor-pointer">
-                <div className="flex items-center gap-4">
-                    <Volume2 size={20} className="text-on-surface-variant" />
-                    <span className="text-on-surface font-medium">Sound Effects</span>
-                </div>
-                 <div className="w-12 h-6 bg-primary-container rounded-full relative">
-                    <div className="w-4 h-4 bg-primary rounded-full absolute top-1 right-1" />
-                </div>
+            <div className="flex items-center gap-3.5 border-t border-divider py-3.5">
+              <Volume2 size={20} strokeWidth={2.5} className="text-accent-2-700" />
+              <span className="flex-1 text-sm font-semibold text-ink">Sound effects</span>
+              <Switch on />
             </div>
-        </div>
-      </section>
+          </section>
 
-      <div className="text-center text-outline text-body-md mt-8">
-        NutriMind AI v1.0.2
+        </div>
+
+        {/* Right column: daily goals */}
+        <section className="rounded-card bg-surface p-7 shadow-sm md:px-8">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-[22px] text-ink">Daily goals</h3>
+            {showSaved && (
+              <span className="animate-in fade-in text-sm font-semibold text-accent-2-700">Saved!</span>
+            )}
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-x-5">
+            <GoalField
+              label="Calories (kcal)"
+              value={localGoals.calories}
+              onChange={(v) => handleChange('calories', v)}
+            />
+            <GoalField
+              label="Protein (g)"
+              value={localGoals.protein}
+              onChange={(v) => handleChange('protein', v)}
+            />
+            <GoalField
+              label="Carbs (g)"
+              value={localGoals.carbs}
+              onChange={(v) => handleChange('carbs', v)}
+            />
+            <GoalField label="Fat (g)" value={localGoals.fat} onChange={(v) => handleChange('fat', v)} />
+          </div>
+
+          <div className="kicker mb-3 mt-6 font-semibold text-accent-2-700">Minerals</div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-x-5">
+            <GoalField
+              label="Sodium (mg)"
+              value={localGoals.sodium}
+              onChange={(v) => handleChange('sodium', v)}
+            />
+            <GoalField
+              label="Calcium (mg)"
+              value={localGoals.calcium}
+              onChange={(v) => handleChange('calcium', v)}
+            />
+            <GoalField label="Iron (mg)" value={localGoals.iron} onChange={(v) => handleChange('iron', v)} />
+          </div>
+
+          <div className="mt-7 flex flex-wrap justify-end gap-2.5">
+            <button onClick={handleReset} className="btn btn-secondary">
+              Reset to suggested
+            </button>
+            <button onClick={handleSave} disabled={!isDirty} className="btn btn-primary">
+              Save goals
+            </button>
+          </div>
+        </section>
       </div>
+
+      <div className="mt-2 text-center text-sm text-neutral-500">Nutri · v1.0.2</div>
     </div>
   );
 };
