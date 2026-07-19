@@ -133,18 +133,27 @@ function App() {
   }
 
   const brand = (
-    <div className="flex items-center gap-2.5">
-      <div className="grid h-9 w-9 place-items-center rounded-full bg-accent-2-300">
+    <button
+      onClick={() => handleTabChange("dashboard")}
+      aria-label="Today"
+      className="flex items-center gap-2.5"
+    >
+      <div className="grid h-9 w-9 place-items-center rounded-full bg-accent-2-300 transition-transform hover:scale-105 active:scale-95">
         <Leaf size={18} strokeWidth={2.75} className="text-accent-2-800" />
       </div>
       <span className="font-display text-[19px] text-ink">Nutri</span>
-    </div>
+    </button>
   );
 
   const avatar = (
-    <div className="grid h-9 w-9 place-items-center rounded-full bg-accent-300 text-[13px] font-semibold text-accent-900">
+    <button
+      onClick={() => handleTabChange("settings")}
+      aria-label="Account"
+      aria-current={activeTab === "settings" ? "page" : undefined}
+      className="grid h-9 w-9 place-items-center rounded-full bg-accent-300 text-[13px] font-semibold text-accent-900 transition-transform hover:scale-105 active:scale-95"
+    >
       {profile.initials}
-    </div>
+    </button>
   );
 
   return (
