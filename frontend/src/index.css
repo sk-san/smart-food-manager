@@ -178,6 +178,11 @@
     @apply px-2 py-1.5 text-accent-700 hover:bg-accent-100;
   }
 
+  /* Softens photography into the palette (the design system's photo look). */
+  .washed {
+    filter: saturate(0.6) contrast(0.85) brightness(1.1) opacity(0.94);
+  }
+
   .field-label {
     @apply mb-1.5 block text-xs text-neutral-700;
   }

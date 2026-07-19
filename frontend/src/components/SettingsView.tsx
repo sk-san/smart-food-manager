@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DailyGoal, SUGGESTED_GOALS, UserProfile } from '../types/nutrition';
+import { DailyGoal, DEMO_ACCOUNT_STATS, SUGGESTED_GOALS, UserProfile } from '../types/nutrition';
 import { Bell, LogOut, Moon, Volume2 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -98,7 +98,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="mt-0.5 text-[13px] text-neutral-600">{profile.email}</div>
             </div>
             <div className="flex flex-wrap justify-center gap-1.5">
-              <span className="tag tag-accent-2">5-day streak</span>
+              <span className="tag tag-accent-2 tabular-nums">{DEMO_ACCOUNT_STATS.currentStreak}-day streak</span>
               <span className="tag tag-neutral">{profile.tag}</span>
             </div>
             <div className="mt-1.5 flex flex-wrap justify-center gap-2.5">
@@ -108,6 +108,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                 Log out
               </button>
             </div>
+          </section>
+
+          {/* Week at a glance (design 2b) — demo aggregates until entries persist. */}
+          <section className="grid grid-cols-3 gap-2.5" aria-label="Account statistics">
+            {[
+              { value: DEMO_ACCOUNT_STATS.daysLogged.toLocaleString('en-US'), caption: 'days logged' },
+              { value: DEMO_ACCOUNT_STATS.avgCalories.toLocaleString('en-US'), caption: 'avg kcal / day' },
+              { value: DEMO_ACCOUNT_STATS.bestStreak.toLocaleString('en-US'), caption: 'best streak' },
+            ].map(({ value, caption }) => (
+              <div key={caption} className="rounded-[20px] bg-surface px-2 py-3.5 text-center shadow-sm">
+                <div className="font-display text-[21px] text-ink tabular-nums">{value}</div>
+                <div className="text-[11px] text-neutral-600">{caption}</div>
+              </div>
+            ))}
           </section>
 
           <section className="rounded-card bg-surface px-6 py-2 shadow-sm">

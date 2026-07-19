@@ -1,6 +1,7 @@
 import React from 'react';
 import { Code, FlaskConical, Leaf } from 'lucide-react';
 import { GuestRole } from '../types/nutrition';
+import photo from '../assets/photo.jpg';
 
 interface LoginViewProps {
   /** Purely presentational — fired by the Sign in button, no real auth. */
@@ -37,35 +38,13 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
             Your log, your larder and Nutri are right where you left them.
           </p>
 
-          {/* Nutri, waiting patiently (the design-system blob illustration) */}
-          <svg
-            viewBox="0 0 100 100"
-            className="mt-auto hidden h-40 w-40 self-end md:block"
-            aria-hidden="true"
-          >
-            <ellipse cx="50" cy="90" rx="28" ry="6" fill="var(--color-accent-2-400)" opacity="0.5" />
-            <path
-              d="M50 14 Q50 2 38 6 Q49 9 50 14 M50 14 Q51 4 61 7 Q52 10 50 14"
-              fill="var(--color-accent-2-700)"
-            />
-            <path
-              d="M22 55 a28 26 0 1 0 56 0 a28 26 0 1 0 -56 0"
-              fill="var(--color-neutral-100)"
-              stroke="var(--color-accent-2-600)"
-              strokeWidth="2.5"
-            />
-            <circle cx="41" cy="52" r="3.4" fill="var(--color-neutral-900)" />
-            <circle cx="59" cy="52" r="3.4" fill="var(--color-neutral-900)" />
-            <path
-              d="M43 62 Q50 68 57 62"
-              fill="none"
-              stroke="var(--color-neutral-900)"
-              strokeWidth="2.75"
-              strokeLinecap="round"
-            />
-            <circle cx="33" cy="60" r="4.5" fill="var(--color-accent-300)" opacity="0.85" />
-            <circle cx="67" cy="60" r="4.5" fill="var(--color-accent-300)" opacity="0.85" />
-          </svg>
+          {/* Washed photo in an organic frame (design 2c) */}
+          <img
+            src={photo}
+            alt=""
+            className="washed mt-auto hidden h-[180px] w-[200px] self-end object-cover md:block"
+            style={{ borderRadius: '47% 53% 42% 58% / 58% 50% 50% 42%' }}
+          />
         </div>
 
         {/* Sign-in form */}

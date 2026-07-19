@@ -66,6 +66,15 @@ export const GUEST_PROFILES: Record<GuestRole, UserProfile> = {
   },
 };
 
+// Demo account aggregates shown on the account page and the almanac board —
+// real aggregation is a follow-up once entries persist through the backend.
+export const DEMO_ACCOUNT_STATS = {
+  daysLogged: 196,
+  avgCalories: 2090,
+  bestStreak: 12,
+  currentStreak: 5,
+};
+
 // The app's suggested daily targets — the initial goals in App and what the
 // "Reset to suggested" action in the account view restores.
 export const SUGGESTED_GOALS: DailyGoal = {
