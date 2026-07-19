@@ -22,28 +22,55 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg p-4 md:p-8">
       <div className="animate-in fade-in grid w-full max-w-4xl overflow-hidden rounded-card bg-surface shadow-lg duration-500 md:min-h-[560px] md:grid-cols-[1fr_1.1fr]">
-        {/* Brand panel */}
-        <div className="flex flex-col bg-accent-2-200 p-9">
-          <div className="flex items-center gap-2.5">
+        {/* Brand panel — animated blobs drift behind the copy (Sign-in Animated design) */}
+        <div className="relative flex flex-col overflow-hidden bg-accent-2-200 p-9">
+          <div
+            aria-hidden
+            className="blob-anim absolute -right-[110px] -top-[90px] h-[300px] w-[300px] bg-accent-2-300"
+            style={{
+              borderRadius: '47% 53% 42% 58% / 58% 50% 50% 42%',
+              animation:
+                'blob-drift 14s ease-in-out infinite, blob-morph 11s ease-in-out infinite',
+            }}
+          />
+          <div
+            aria-hidden
+            className="blob-anim absolute -bottom-[70px] -left-[90px] h-[230px] w-[230px] bg-accent-2-100 opacity-70"
+            style={{
+              borderRadius: '55% 45% 52% 48% / 46% 56% 44% 54%',
+              animation:
+                'blob-drift 18s ease-in-out -6s infinite reverse, blob-morph 13s ease-in-out -3s infinite',
+            }}
+          />
+          <div
+            aria-hidden
+            className="blob-anim absolute left-[8%] top-[46%] h-[120px] w-[120px] rounded-full bg-accent-200 opacity-[0.55]"
+            style={{ animation: 'blob-drift 16s ease-in-out -10s infinite' }}
+          />
+
+          <div className="relative flex items-center gap-2.5">
             <div className="grid h-9 w-9 place-items-center rounded-full bg-neutral-100">
               <Leaf size={18} strokeWidth={2.75} className="text-accent-2-800" />
             </div>
             <span className="font-display text-[19px] text-accent-2-900">Nutri</span>
           </div>
 
-          <h2 className="mt-7 max-w-[9ch] text-[28px] leading-[1.1] text-accent-2-900 md:text-[34px]">
+          <h2 className="relative mt-7 max-w-[9ch] text-[28px] leading-[1.1] text-accent-2-900 md:text-[34px]">
             Welcome back to the table.
           </h2>
-          <p className="mt-3 max-w-[26ch] text-sm leading-relaxed text-accent-2-800">
+          <p className="relative mt-3 max-w-[26ch] text-sm leading-relaxed text-accent-2-800">
             Your log, your larder and Nutri are right where you left them.
           </p>
 
-          {/* Washed photo in an organic frame (design 2c) */}
+          {/* Washed photo in an organic frame; its silhouette morphs in step with the blobs */}
           <img
             src={photo}
             alt=""
-            className="washed mt-auto hidden h-[180px] w-[200px] self-end object-cover md:block"
-            style={{ borderRadius: '47% 53% 42% 58% / 58% 50% 50% 42%' }}
+            className="washed blob-anim relative mt-auto hidden h-[180px] w-[200px] self-end object-cover md:block"
+            style={{
+              borderRadius: '47% 53% 42% 58% / 58% 50% 50% 42%',
+              animation: 'blob-morph 12s ease-in-out infinite',
+            }}
           />
         </div>
 
