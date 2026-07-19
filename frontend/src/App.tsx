@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
-import { LayoutGrid, Leaf, Plus, TrendingUp, User } from "lucide-react";
+import { Carrot, LayoutGrid, Leaf, Plus, TrendingUp, User } from "lucide-react";
 import AddEntryModal from "./components/AddEntryModal";
 import CompanionCharacter from "./components/CompanionCharacter";
 import DashboardView from "./components/DashboardView";
 import LoginView from "./components/LoginView";
+import PantryView from "./components/PantryView";
 import StatsView from "./components/StatsView";
 import SettingsView from "./components/SettingsView";
 import {
@@ -16,7 +17,7 @@ import {
 } from "./types/nutrition";
 import { logNavigation, logScreenView } from "./telemetry/events";
 
-type Tab = "dashboard" | "history" | "settings";
+type Tab = "dashboard" | "history" | "pantry" | "settings";
 
 // Demo seed data. Entries live in local state for now; persistence through
 // the backend is a follow-up — the AI analysis and companion already route
@@ -27,6 +28,7 @@ const INITIAL_ENTRIES: FoodEntry[] = [
 const TAB_LABELS: Record<Tab, string> = {
   dashboard: "Today",
   history: "Stats",
+  pantry: "Pantry",
   settings: "Account",
 };
 
@@ -122,6 +124,7 @@ function App() {
   const navItems: { tab: Tab; icon: typeof LayoutGrid }[] = [
     { tab: "dashboard", icon: LayoutGrid },
     { tab: "history", icon: TrendingUp },
+    { tab: "pantry", icon: Carrot },
     { tab: "settings", icon: User },
   ];
 
@@ -185,11 +188,15 @@ function App() {
             todayTotals={todayTotals}
             goals={goals}
             entries={entries}
+            onLogFood={() => setIsModalOpen(true)}
+            onOpenStats={() => handleTabChange("history")}
             onHoverStart={handleContentHoverStart}
             onHoverEnd={handleContentHoverEnd}
           />
         ) : activeTab === "history" ? (
           <StatsView entries={entries} goals={goals} />
+        ) : activeTab === "pantry" ? (
+          <PantryView onHoverStart={handleContentHoverStart} onHoverEnd={handleContentHoverEnd} />
         ) : (
           <SettingsView
             goals={goals}
