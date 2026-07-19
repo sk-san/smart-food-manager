@@ -190,3 +190,34 @@
     @apply w-full min-h-[38px] rounded-full border border-divider bg-bg px-3.5 py-1.5 text-sm text-ink transition-colors placeholder:text-neutral-500 hover:border-neutral-500 focus:border-accent focus:outline-none;
   }
 }
+
+/* Sign-in brand-panel motion (from the "Sign-in Animated" design): organic
+   blobs drift around the panel while their silhouettes slowly morph. */
+@keyframes blob-drift {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(26px, -18px) scale(1.07);
+  }
+  66% {
+    transform: translate(-14px, 14px) scale(0.95);
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+}
+@keyframes blob-morph {
+  0%,
+  100% {
+    border-radius: 47% 53% 42% 58% / 58% 50% 50% 42%;
+  }
+  50% {
+    border-radius: 55% 45% 52% 48% / 46% 56% 44% 54%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .blob-anim {
+    animation: none !important;
+  }
+}
