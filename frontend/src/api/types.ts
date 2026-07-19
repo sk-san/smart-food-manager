@@ -12,3 +12,7 @@ export interface Nutrient {
   focus: "deficiency_watch" | "excess_watch" | "caution";
   reference_daily_amount: number | null;
 }
+
+export interface LoginResponse {
+  token: string;
+}

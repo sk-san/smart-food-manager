@@ -10,9 +10,21 @@ import { logEvent } from "../telemetry/logger";
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
-let authToken: string | null = null;
+const TOKEN_STORAGE_KEY = "auth_token";
+
+let authToken: string | null = localStorage.getItem(TOKEN_STORAGE_KEY);
+
 export function setToken(token: string | null): void {
   authToken = token;
+  if (token) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  } else {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+}
+
+export function getToken(): string | null {
+  return authToken;
 }
 
 export async function apiGet<T>(path: string): Promise<T> {

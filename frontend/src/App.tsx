@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
-import { LayoutDashboard, Utensils, Settings, Plus, TrendingUp } from "lucide-react";
+import { LayoutDashboard, Utensils, Settings, Plus, TrendingUp, LogOut } from "lucide-react";
 import AddEntryModal from "./components/AddEntryModal";
 import CompanionCharacter from "./components/CompanionCharacter";
 import DashboardView from "./components/DashboardView";
 import StatsView from "./components/StatsView";
 import SettingsView from "./components/SettingsView";
+import LoginView from "./components/LoginView";
 import { FoodEntry, DailyGoal } from "./types/nutrition";
 import { logNavigation, logScreenView } from "./telemetry/events";
+import { getToken, setToken } from "./api/client";
 
 type Tab = "dashboard" | "history" | "settings";
 
@@ -38,9 +40,15 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [isLookingAtContent, setIsLookingAtContent] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => !!getToken());
   // Initial value comes from the pre-paint script in index.html, which
   // resolves localStorage + the system preference before React mounts.
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
+
+  const handleLogout = () => {
+    setToken(null);
+    setIsLoggedIn(false);
+  };
 
   const handleToggleDark = () => {
     setIsDark((prev) => {
@@ -98,6 +106,10 @@ function App() {
     { tab: "settings", icon: Settings },
   ];
 
+  if (!isLoggedIn) {
+    return <LoginView onLoggedIn={() => setIsLoggedIn(true)} />;
+  }
+
   return (
     <div className="min-h-screen bg-surface flex">
       {/* Navigation Rail (Desktop) */}
@@ -120,6 +132,14 @@ function App() {
             </button>
           ))}
         </nav>
+
+        <button
+          onClick={handleLogout}
+          className="mt-auto flex flex-col items-center gap-1 w-16 py-2 rounded-xl text-on-surface-variant hover:bg-outline-variant/50 transition-all"
+        >
+          <LogOut size={22} />
+          <span className="text-[10px] font-medium">Log Out</span>
+        </button>
       </aside>
 
       {/* Main Content */}
