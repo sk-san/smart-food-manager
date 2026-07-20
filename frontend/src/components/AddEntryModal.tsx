@@ -64,73 +64,72 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
     onClose();
   };
 
+  const segOption = (target: 'text' | 'image', icon: React.ReactNode, label: string) => (
+    <button
+      onClick={() => { setMode(target); setAnalysisResult(null); }}
+      className={`flex items-center gap-1.5 px-4 py-2 text-[13px] transition-colors ${
+        mode === target
+          ? 'bg-accent font-semibold text-bg'
+          : 'text-neutral-700 hover:bg-neutral-200'
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 transition-opacity">
-      <div className="bg-surface w-full max-w-lg rounded-[28px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/50 p-4 backdrop-blur-sm transition-opacity dark:bg-black/60">
+      <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-card bg-surface shadow-lg">
         {/* Header */}
-        <div className="p-6 pb-2 flex justify-between items-center">
-          <h2 className="text-headline-sm font-normal text-on-surface">Log Food</h2>
-          <button onClick={handleClose} className="p-2 hover:bg-surface-container rounded-full transition-colors">
-            <X size={24} className="text-on-surface-variant" />
+        <div className="flex items-center justify-between p-6 pb-2">
+          <h2 className="text-[24px] text-ink">Log Food</h2>
+          <button
+            onClick={handleClose}
+            className="rounded-full p-2 text-neutral-600 transition-colors hover:bg-neutral-200"
+            aria-label="Close"
+          >
+            <X size={22} strokeWidth={2.5} />
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="px-6 flex gap-4 mt-4">
-          <button
-            onClick={() => { setMode('text'); setAnalysisResult(null); }}
-            className={`flex-1 py-3 rounded-full flex items-center justify-center gap-2 transition-all ${
-              mode === 'text' 
-                ? 'bg-primary-container text-on-primary-container font-medium' 
-                : 'bg-transparent border border-outline text-on-surface-variant'
-            }`}
-          >
-            <Type size={18} />
-            <span>Text</span>
-          </button>
-          <button
-            onClick={() => { setMode('image'); setAnalysisResult(null); }}
-            className={`flex-1 py-3 rounded-full flex items-center justify-center gap-2 transition-all ${
-              mode === 'image' 
-                ? 'bg-primary-container text-on-primary-container font-medium' 
-                : 'bg-transparent border border-outline text-on-surface-variant'
-            }`}
-          >
-            <Camera size={18} />
-            <span>Image</span>
-          </button>
+        {/* Mode segment */}
+        <div className="mx-6 mt-2 inline-flex self-start overflow-hidden rounded-full border border-divider">
+          {segOption('text', <Type size={16} strokeWidth={2.5} />, 'Text')}
+          <div className="w-px bg-divider" />
+          {segOption('image', <Camera size={16} strokeWidth={2.5} />, 'Image')}
         </div>
 
         {/* Content */}
-        <div className="p-6 flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto p-6">
           {!analysisResult ? (
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
               {mode === 'text' ? (
                 <textarea
-                  className="w-full h-40 bg-surface-container rounded-xl p-4 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary resize-none placeholder-on-surface-variant"
+                  className="input h-40 resize-none rounded-3xl px-4 py-3"
                   placeholder="e.g., A grilled chicken sandwich and a medium fries..."
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                 />
               ) : (
-                <div 
-                  className="w-full h-64 border-2 border-dashed border-outline rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container transition-colors relative overflow-hidden"
+                <div
+                  className="relative flex h-64 w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed border-neutral-400 transition-colors hover:bg-neutral-100"
                   onClick={() => fileInputRef.current?.click()}
                 >
                   {previewUrl ? (
-                    <img src={previewUrl} alt="Preview" className="absolute inset-0 w-full h-full object-cover" />
+                    <img src={previewUrl} alt="Preview" className="absolute inset-0 h-full w-full object-cover" />
                   ) : (
                     <>
-                      <Upload size={32} className="text-on-surface-variant mb-2" />
-                      <p className="text-on-surface-variant">Tap to upload food photo</p>
+                      <Upload size={30} strokeWidth={2.5} className="mb-2 text-neutral-500" />
+                      <p className="text-sm text-neutral-600">Tap to upload food photo</p>
                     </>
                   )}
-                  <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    className="hidden" 
-                    accept="image/*" 
-                    onChange={handleFileSelect} 
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleFileSelect}
                   />
                 </div>
               )}
@@ -138,41 +137,44 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
               <button
                 disabled={isAnalyzing || (mode === 'text' ? !inputText : !selectedFile)}
                 onClick={handleAnalyze}
-                className="w-full py-4 bg-primary text-on-primary rounded-full font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
+                className="btn btn-primary w-full py-3.5 text-[15px] shadow-sm"
               >
-                {isAnalyzing ? <Loader2 className="animate-spin" /> : <React.Fragment>Analyze <span className="text-label-md bg-on-primary/20 px-2 py-0.5 rounded-full">AI</span></React.Fragment>}
+                {isAnalyzing ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <React.Fragment>
+                    Analyze{' '}
+                    <span className="rounded-full bg-accent-700 px-2 py-0.5 font-sans text-[11px] font-semibold">
+                      AI
+                    </span>
+                  </React.Fragment>
+                )}
               </button>
             </div>
           ) : (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <h3 className="text-title-md font-medium text-on-surface">Found Items</h3>
-              <div className="space-y-2">
+            <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-4 duration-500">
+              <h3 className="text-[19px] text-ink">Found Items</h3>
+              <div className="flex flex-col gap-2.5">
                 {analysisResult.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-surface-container p-4 rounded-2xl">
-                    <div>
-                      <p className="font-medium text-on-surface">{item.name}</p>
-                      <p className="text-body-md text-on-surface-variant tabular-nums">{item.calories} kcal</p>
+                  <div key={idx} className="flex items-center justify-between gap-3 rounded-3xl bg-bg p-4">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-ink">{item.name}</p>
+                      <p className="text-xs text-neutral-600 tabular-nums">{item.calories} kcal</p>
                     </div>
-                    <div className="flex gap-2 text-label-md text-on-surface-variant">
-                      <span className="bg-secondary-container px-2 py-1 rounded-md tabular-nums">P: {item.protein}g</span>
-                      <span className="bg-secondary-container px-2 py-1 rounded-md tabular-nums">C: {item.carbs}g</span>
-                      <span className="bg-secondary-container px-2 py-1 rounded-md tabular-nums">F: {item.fat}g</span>
+                    <div className="flex shrink-0 gap-1.5">
+                      <span className="tag tag-accent tabular-nums">P {item.protein}g</span>
+                      <span className="tag tag-accent-2 tabular-nums">C {item.carbs}g</span>
+                      <span className="tag tag-neutral tabular-nums">F {item.fat}g</span>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="flex gap-3 pt-4">
-                 <button
-                  onClick={() => setAnalysisResult(null)}
-                  className="flex-1 py-3 border border-outline text-primary rounded-full font-medium hover:bg-surface-container transition-colors"
-                >
+              <div className="flex gap-2.5 pt-3">
+                <button onClick={() => setAnalysisResult(null)} className="btn btn-secondary flex-1 py-3">
                   Retry
                 </button>
-                <button
-                  onClick={handleConfirm}
-                  className="flex-1 py-3 bg-primary text-on-primary rounded-full font-medium shadow-md hover:shadow-lg flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Check size={18} />
+                <button onClick={handleConfirm} className="btn btn-primary flex-1 py-3 shadow-sm">
+                  <Check size={17} strokeWidth={2.75} />
                   Add to Log
                 </button>
               </div>

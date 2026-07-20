@@ -4,16 +4,13 @@ import { test, expect, Page } from "@playwright/test";
 // backend endpoints are stubbed with page.route so the tests are
 // deterministic and never call the Go API or Gemini.
 
-// The two demo entries seeded in App.tsx: 350 + 450 kcal.
-const SEEDED_CALORIES = 800;
-
 const ANALYZE_PATH = "**/api/v1/nutrition/analyze";
 const TELEMETRY_PATH = "**/api/v1/telemetry/logs";
 
-// The desktop navigation rail (the mobile bottom bar duplicates the same
-// button names, so scope clicks to the <aside>).
-function navRail(page: Page) {
-  return page.locator("aside");
+// The desktop top navigation (the mobile bottom bar duplicates the same
+// button names, so scope clicks to the <header>).
+function topNav(page: Page) {
+  return page.locator("header");
 }
 
 test.beforeEach(async ({ page }) => {
@@ -31,36 +28,33 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("dashboard", () => {
-  test("shows the seeded food log and computed totals", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
+  test("shows an empty ledger and the calorie goal", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: /at the table/ })).toBeVisible();
 
-    // Seeded entries appear in the log.
-    await expect(page.getByText("Oatmeal & Blueberries")).toBeVisible();
-    await expect(page.getByText("Grilled Chicken Salad")).toBeVisible();
-
-    // The calories hero card sums the entries and shows the goal.
-    await expect(page.getByText(String(SEEDED_CALORIES), { exact: true })).toBeVisible();
-    await expect(page.getByText("Daily Limit: 2200")).toBeVisible();
+    // The log starts empty; the hero card shows a zero total against the goal.
+    await expect(page.getByText(/Nothing on the table yet/)).toBeVisible();
+    await expect(page.getByText("of 2,200 kcal", { exact: true })).toBeVisible();
+    await expect(page.getByText("0", { exact: true })).toBeVisible();
   });
 });
 
 test.describe("navigation", () => {
   test("switches between the three views", async ({ page }) => {
-    await navRail(page).getByRole("button", { name: "Stats" }).click();
+    await topNav(page).getByRole("button", { name: "Stats" }).click();
     await expect(page.getByRole("heading", { name: "Statistics" })).toBeVisible();
 
-    await navRail(page).getByRole("button", { name: "Prefs" }).click();
-    await expect(page.getByRole("heading", { name: "Preferences" })).toBeVisible();
+    await topNav(page).getByRole("button", { name: "Account" }).click();
+    await expect(page.getByRole("heading", { name: "Your account" })).toBeVisible();
 
-    await navRail(page).getByRole("button", { name: "Dash" }).click();
-    await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
+    await topNav(page).getByRole("button", { name: "Today" }).click();
+    await expect(page.getByRole("heading", { name: /at the table/ })).toBeVisible();
   });
 
   test("emits telemetry batches to the ingest endpoint", async ({ page }) => {
     // Navigating queues navigation + screen_view events; the logger flushes
     // them to /api/v1/telemetry/logs within FLUSH_INTERVAL_MS (5s).
     const batch = page.waitForRequest(TELEMETRY_PATH, { timeout: 10_000 });
-    await navRail(page).getByRole("button", { name: "Stats" }).click();
+    await topNav(page).getByRole("button", { name: "Stats" }).click();
     const req = await batch;
 
     const body = req.postDataJSON() as { events: Array<{ "event.name": string }> };
@@ -90,7 +84,7 @@ test.describe("log food modal", () => {
       })
     );
 
-    await page.getByRole("button", { name: "Log food" }).click();
+    await topNav(page).getByRole("button", { name: "Log food" }).click();
     await expect(page.getByRole("heading", { name: "Log Food" })).toBeVisible();
 
     // Analyze is disabled until there is input.
@@ -108,9 +102,7 @@ test.describe("log food modal", () => {
     // Modal closes and the dashboard reflects the new entry and total.
     await expect(page.getByRole("heading", { name: "Log Food" })).toBeHidden();
     await expect(page.getByText("Avocado Toast")).toBeVisible();
-    await expect(
-      page.getByText(String(SEEDED_CALORIES + 320), { exact: true })
-    ).toBeVisible();
+    await expect(page.getByText("320", { exact: true })).toBeVisible();
   });
 
   test("falls back to an estimated item when the backend fails", async ({ page }) => {
@@ -120,7 +112,7 @@ test.describe("log food modal", () => {
       route.fulfill({ status: 502, json: { error: "analysis failed" } })
     );
 
-    await page.getByRole("button", { name: "Log food" }).click();
+    await topNav(page).getByRole("button", { name: "Log food" }).click();
     await page.getByPlaceholder(/grilled chicken sandwich/).fill("mystery stew");
     await page.getByRole("button", { name: /Analyze/ }).click();
 
@@ -129,18 +121,50 @@ test.describe("log food modal", () => {
   });
 });
 
-test.describe("preferences", () => {
+test.describe("account", () => {
+  test("logging out shows the template login page and sign in returns", async ({ page }) => {
+    await topNav(page).getByRole("button", { name: "Account" }).click();
+    await page.getByRole("button", { name: "Log out" }).click();
+
+    // The template sign-in screen (no real auth behind it) replaces the app.
+    await expect(page.getByRole("heading", { name: "Welcome back to the table." })).toBeVisible();
+    await expect(page.getByLabel("Email")).toBeVisible();
+    await expect(page.getByLabel("Password")).toBeVisible();
+
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByRole("heading", { name: /at the table/ })).toBeVisible();
+  });
+
+  test("guest bypass buttons enter the app with the chosen role", async ({ page }) => {
+    await topNav(page).getByRole("button", { name: "Account" }).click();
+    await page.getByRole("button", { name: "Log out" }).click();
+
+    // Developer bypass: straight to the dashboard, identity reflects the role.
+    await page.getByRole("button", { name: "Developer" }).click();
+    await expect(page.getByRole("heading", { name: /at the table/ })).toBeVisible();
+    await topNav(page).getByRole("button", { name: "Account" }).click();
+    await expect(page.getByText("dev@nutri.local")).toBeVisible();
+
+    // Alpha bypass works the same way.
+    await page.getByRole("button", { name: "Log out" }).click();
+    await page.getByRole("button", { name: "Alpha tester" }).click();
+    await topNav(page).getByRole("button", { name: "Account" }).click();
+    await expect(page.getByText("alpha@nutri.local")).toBeVisible();
+
+    // A normal sign-in returns to the demo account.
+    await page.getByRole("button", { name: "Log out" }).click();
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await topNav(page).getByRole("button", { name: "Account" }).click();
+    await expect(page.getByText("john.doe@example.com")).toBeVisible();
+  });
+
   test("saving a new calorie goal updates the dashboard", async ({ page }) => {
-    await navRail(page).getByRole("button", { name: "Prefs" }).click();
+    await topNav(page).getByRole("button", { name: "Account" }).click();
 
-    const caloriesInput = page
-      .locator("div", { has: page.getByText("Daily Calories", { exact: true }) })
-      .locator("input")
-      .first();
-    await caloriesInput.fill("2500");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByRole("spinbutton", { name: "Calories (kcal)" }).fill("2500");
+    await page.getByRole("button", { name: "Save goals" }).click();
 
-    await navRail(page).getByRole("button", { name: "Dash" }).click();
-    await expect(page.getByText("Daily Limit: 2500")).toBeVisible();
+    await topNav(page).getByRole("button", { name: "Today" }).click();
+    await expect(page.getByText("of 2,500 kcal", { exact: true })).toBeVisible();
   });
 });
