@@ -36,10 +36,8 @@ function App() {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [isLookingAtContent, setIsLookingAtContent] = useState(false);
   
-  // あなたの実装：トークンがあるかどうかで初期のログイン状態を判定
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!getToken());
   
-  // sk-sanさんの実装：ゲストログイン用のロール管理
   const [guestRole, setGuestRole] = useState<GuestRole | null>(null);
 
   const profile = guestRole ? GUEST_PROFILES[guestRole] : DEFAULT_PROFILE;
@@ -121,7 +119,6 @@ function App() {
     { tab: "settings", icon: User },
   ];
 
-  // あなた独自のログインチェック（未ログインならLoginViewを表示）
   if (!isLoggedIn) {
     return <LoginView onSignIn={handleSignIn} onGuestLogin={handleGuestLogin} onLoggedIn={() => setIsLoggedIn(true)} />;
   }
@@ -176,7 +173,6 @@ function App() {
           Log food
         </button>
         {avatar}
-        {/* あなたの実装：ログアウトボタンをヘッダーの端に綺麗に統合 */}
         <button
           onClick={handleLogout}
           className="ml-2 flex items-center gap-1 px-3 py-1.5 rounded-lg text-neutral-600 hover:text-red-600 hover:bg-neutral-100 transition-all text-[13px] font-medium"

@@ -17,7 +17,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin, onLoggedI
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // あなたが実装した本物のログイン処理を、sk-sanさんのデザインフォームとドッキング
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password || isSubmitting) return;
@@ -27,7 +26,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin, onLoggedI
     try {
       const data = await apiPost<LoginResponse>('/api/v1/auth/login', { email, password });
       setToken(data.token);
-      onLoggedIn(); // あなたの実装：ログイン状態を確定
+      onLoggedIn();
       onSignIn();
     } catch (err) {
       setError('Invalid email or password.');
@@ -39,7 +38,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin, onLoggedI
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg p-4 md:p-8">
       <div className="animate-in fade-in grid w-full max-w-4xl overflow-hidden rounded-card bg-surface shadow-lg duration-500 md:min-h-[560px] md:grid-cols-[1fr_1.1fr]">
-        {/* Brand panel — sk-sanさんのオシャレなアニメーションパネル */}
         <div className="relative flex flex-col overflow-hidden bg-accent-2-200 p-9">
           <div
             aria-hidden
@@ -88,7 +86,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin, onLoggedI
           />
         </div>
 
-        {/* Sign-in form — あなたの実装した機能と完全同期 */}
         <form onSubmit={handleSubmit} className="flex flex-col justify-center p-8 md:p-12">
           <h3 className="mb-5 text-[25px] text-ink">Sign in</h3>
 
@@ -130,7 +127,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin, onLoggedI
             Forgot password?
           </a>
 
-          {/* エラーメッセージの表示 */}
           {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
 
           <button type="submit" disabled={isSubmitting} className="btn btn-primary mt-5 w-full py-3 text-[15px] shadow-sm flex items-center justify-center gap-2">
@@ -147,7 +143,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin, onLoggedI
             Create an account
           </button>
 
-          {/* テスト用のゲストアクセス機能（sk-sanさん実装分も保持） */}
           <div className="kicker mb-2 mt-6 text-center text-neutral-500">Guest access · testing only</div>
           <div className="flex gap-2.5">
             <button
