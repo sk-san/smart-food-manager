@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Carrot, LayoutGrid, Leaf, Plus, TrendingUp, User } from "lucide-react";
+import { Carrot, LayoutGrid, Leaf, Plus, TrendingUp, User, LogOut } from "lucide-react";
 import AddEntryModal from "./components/AddEntryModal";
 import CompanionCharacter from "./components/CompanionCharacter";
 import DashboardView from "./components/DashboardView";
@@ -16,14 +16,11 @@ import {
   GUEST_PROFILES,
 } from "./types/nutrition";
 import { logNavigation, logScreenView } from "./telemetry/events";
+import { getToken, setToken } from "./api/client";
 
 type Tab = "dashboard" | "history" | "pantry" | "settings";
 
-// Demo seed data. Entries live in local state for now; persistence through
-// the backend is a follow-up — the AI analysis and companion already route
-// through the instrumented API client.
-const INITIAL_ENTRIES: FoodEntry[] = [
- ];
+const INITIAL_ENTRIES: FoodEntry[] = [];
 
 const TAB_LABELS: Record<Tab, string> = {
   dashboard: "Today",
@@ -38,16 +35,21 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [isLookingAtContent, setIsLookingAtContent] = useState(false);
-  // Template-only sign-in screen (design 2c): "Sign out" shows it, "Sign in"
-  // returns. No real auth behind it yet — the backend JWT flow is a follow-up.
-  const [showLogin, setShowLogin] = useState(false);
-  // Set by the login screen's guest bypass; null means the demo account.
+  
+  const [isLoggedIn, setIsLoggedIn] = useState(() => !!getToken());
+  
   const [guestRole, setGuestRole] = useState<GuestRole | null>(null);
 
   const profile = guestRole ? GUEST_PROFILES[guestRole] : DEFAULT_PROFILE;
-  // Initial value comes from the pre-paint script in index.html, which
-  // resolves localStorage + the system preference before React mounts.
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
+
+  const handleLogout = () => {
+    logNavigation(activeTab, "login"); 
+    setToken(null);
+    setIsLoggedIn(false);
+    setGuestRole(null);
+    logScreenView("login"); 
+  };
 
   const handleToggleDark = () => {
     setIsDark((prev) => {
@@ -58,13 +60,10 @@ function App() {
     });
   };
 
-  // Initial screen view for telemetry.
   useEffect(() => {
     logScreenView("dashboard");
   }, []);
 
-  // Switches tabs and emits a navigation event so the frontend signal lines
-  // up with backend traces in Grafana.
   const handleTabChange = (next: Tab) => {
     if (next === activeTab) return;
     logNavigation(activeTab, next);
@@ -99,15 +98,8 @@ function App() {
   const handleContentHoverStart = () => setIsLookingAtContent(true);
   const handleContentHoverEnd = () => setIsLookingAtContent(false);
 
-  const handleSignOut = () => {
-    logNavigation(activeTab, "login");
-    setShowLogin(true);
-    setGuestRole(null);
-    logScreenView("login");
-  };
-
   const enterApp = (from: string) => {
-    setShowLogin(false);
+    setIsLoggedIn(true);
     setActiveTab("dashboard");
     logNavigation(from, "dashboard");
     logScreenView("dashboard");
@@ -115,7 +107,6 @@ function App() {
 
   const handleSignIn = () => enterApp("login");
 
-  // Auth bypass for testing: no credentials, just a presentational role.
   const handleGuestLogin = (role: GuestRole) => {
     setGuestRole(role);
     enterApp(`login:guest-${role}`);
@@ -128,8 +119,8 @@ function App() {
     { tab: "settings", icon: User },
   ];
 
-  if (showLogin) {
-    return <LoginView onSignIn={handleSignIn} onGuestLogin={handleGuestLogin} />;
+  if (!isLoggedIn) {
+    return <LoginView onSignIn={handleSignIn} onGuestLogin={handleGuestLogin} onLoggedIn={() => setIsLoggedIn(true)} />;
   }
 
   const brand = (
@@ -182,12 +173,24 @@ function App() {
           Log food
         </button>
         {avatar}
+        <button
+          onClick={handleLogout}
+          className="ml-2 flex items-center gap-1 px-3 py-1.5 rounded-lg text-neutral-600 hover:text-red-600 hover:bg-neutral-100 transition-all text-[13px] font-medium"
+        >
+          <LogOut size={16} />
+          <span>Log Out</span>
+        </button>
       </header>
 
       {/* Compact top bar (mobile) */}
       <div className="flex items-center justify-between px-5 pt-5 md:hidden">
         {brand}
-        {avatar}
+        <div className="flex items-center gap-3">
+          {avatar}
+          <button onClick={handleLogout} className="text-neutral-500 hover:text-red-600">
+            <LogOut size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Main Content */}
@@ -212,7 +215,7 @@ function App() {
             onUpdateGoals={setGoals}
             isDark={isDark}
             onToggleDark={handleToggleDark}
-            onSignOut={handleSignOut}
+            onSignOut={handleLogout}
             profile={profile}
           />
         )}
@@ -221,7 +224,7 @@ function App() {
         <CompanionCharacter stats={todayTotals} goals={goals} isLookingAtScreen={isLookingAtContent} />
       </main>
 
-      {/* Floating Action Button (mobile — desktop logs from the header) */}
+      {/* Floating Action Button (mobile) */}
       <button
         onClick={() => setIsModalOpen(true)}
         className="fixed bottom-24 right-5 z-50 grid h-14 w-14 place-items-center rounded-full bg-accent text-bg shadow-md transition-transform hover:scale-105 active:scale-95 md:hidden"

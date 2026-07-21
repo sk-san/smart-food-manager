@@ -1,36 +1,50 @@
-import React from 'react';
-import { Code, FlaskConical, Leaf } from 'lucide-react';
+import React, { useState } from 'react';
+import { Code, FlaskConical, Leaf, Loader2 } from 'lucide-react';
 import { GuestRole } from '../types/nutrition';
+import { apiPost, setToken } from '../api/client';
+import { LoginResponse } from '../api/types';
 import photo from '../assets/photo.jpg';
 
 interface LoginViewProps {
-  /** Purely presentational — fired by the Sign in button, no real auth. */
   onSignIn: () => void;
-  /** Auth bypass for testing: enters the app as the given guest role. */
   onGuestLogin: (role: GuestRole) => void;
+  onLoggedIn: () => void;
 }
 
-// Template sign-in screen (design 2c): brand panel on the left, credential
-// form on the right. There is no authentication behind it yet — the backend
-// JWT flow is a follow-up — so submitting simply returns to the app.
-const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
-  const handleSubmit = (e: React.FormEvent) => {
+const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin, onLoggedIn }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSignIn();
+    if (!email || !password || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const data = await apiPost<LoginResponse>('/api/v1/auth/login', { email, password });
+      setToken(data.token);
+      onLoggedIn();
+      onSignIn();
+    } catch (err) {
+      setError('Invalid email or password.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg p-4 md:p-8">
       <div className="animate-in fade-in grid w-full max-w-4xl overflow-hidden rounded-card bg-surface shadow-lg duration-500 md:min-h-[560px] md:grid-cols-[1fr_1.1fr]">
-        {/* Brand panel — animated blobs drift behind the copy (Sign-in Animated design) */}
         <div className="relative flex flex-col overflow-hidden bg-accent-2-200 p-9">
           <div
             aria-hidden
             className="blob-anim absolute -right-[110px] -top-[90px] h-[300px] w-[300px] bg-accent-2-300"
             style={{
               borderRadius: '47% 53% 42% 58% / 58% 50% 50% 42%',
-              animation:
-                'blob-drift 14s ease-in-out infinite, blob-morph 11s ease-in-out infinite',
+              animation: 'blob-drift 14s ease-in-out infinite, blob-morph 11s ease-in-out infinite',
             }}
           />
           <div
@@ -38,8 +52,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
             className="blob-anim absolute -bottom-[70px] -left-[90px] h-[230px] w-[230px] bg-accent-2-100 opacity-70"
             style={{
               borderRadius: '55% 45% 52% 48% / 46% 56% 44% 54%',
-              animation:
-                'blob-drift 18s ease-in-out -6s infinite reverse, blob-morph 13s ease-in-out -3s infinite',
+              animation: 'blob-drift 18s ease-in-out -6s infinite reverse, blob-morph 13s ease-in-out -3s infinite',
             }}
           />
           <div
@@ -62,7 +75,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
             Your log, your larder and Nutri are right where you left them.
           </p>
 
-          {/* Washed photo in an organic frame; its silhouette morphs in step with the blobs */}
           <img
             src={photo}
             alt=""
@@ -74,7 +86,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
           />
         </div>
 
-        {/* Sign-in form */}
         <form onSubmit={handleSubmit} className="flex flex-col justify-center p-8 md:p-12">
           <h3 className="mb-5 text-[25px] text-ink">Sign in</h3>
 
@@ -88,6 +99,10 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
               autoComplete="email"
               placeholder="me@example.com"
               className="input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              disabled={isSubmitting}
             />
           </div>
 
@@ -101,6 +116,10 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
               autoComplete="current-password"
               placeholder="••••••••"
               className="input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              disabled={isSubmitting}
             />
           </div>
 
@@ -108,8 +127,10 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
             Forgot password?
           </a>
 
-          <button type="submit" className="btn btn-primary mt-5 w-full py-3 text-[15px] shadow-sm">
-            Sign in
+          {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+
+          <button type="submit" disabled={isSubmitting} className="btn btn-primary mt-5 w-full py-3 text-[15px] shadow-sm flex items-center justify-center gap-2">
+            {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : 'Sign in'}
           </button>
 
           <div className="my-4 flex items-center gap-3 text-xs text-neutral-500">
@@ -118,15 +139,15 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
             <span className="h-px flex-1 bg-divider" />
           </div>
 
-          <button type="button" className="btn btn-secondary w-full py-3">
+          <button type="button" className="btn btn-secondary w-full py-3" disabled={isSubmitting}>
             Create an account
           </button>
 
-          {/* Auth bypass for testing — no credentials, straight into the app. */}
           <div className="kicker mb-2 mt-6 text-center text-neutral-500">Guest access · testing only</div>
           <div className="flex gap-2.5">
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={() => onGuestLogin('developer')}
               className="btn flex-1 border border-dashed border-neutral-500 py-2.5 text-[13px] text-neutral-700 hover:bg-neutral-200 active:bg-neutral-300"
             >
@@ -135,6 +156,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
             </button>
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={() => onGuestLogin('alpha')}
               className="btn flex-1 border border-dashed border-neutral-500 py-2.5 text-[13px] text-neutral-700 hover:bg-neutral-200 active:bg-neutral-300"
             >

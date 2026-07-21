@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/example/food-app/backend/internal/config"
 	"github.com/example/food-app/backend/internal/middleware"
@@ -180,11 +181,36 @@ func (s *suite) doRaw(t *testing.T, method, path, token string, body any) (int, 
 	return resp.StatusCode, raw
 }
 
-// login obtains a real token through the demo login endpoint.
+// e2ePassword is the password every seedUser row is hashed from, so tests
+// can log in without needing a signup endpoint.
+const e2ePassword = "irrelevant-demo-password"
+
+// seedUser inserts a user row with a bcrypt hash of e2ePassword and removes
+// it when the test finishes.
+func (s *suite) seedUser(t *testing.T, email string) {
+	t.Helper()
+	hash, err := bcrypt.GenerateFromPassword([]byte(e2ePassword), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	_, err = s.pool.Exec(context.Background(),
+		`INSERT INTO users (email, password_hash) VALUES ($1, $2)
+		 ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+		email, string(hash))
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.pool.Exec(context.Background(), `DELETE FROM users WHERE email = $1`, email)
+	})
+}
+
+// login seeds a real user row and obtains a token through the login endpoint.
 func (s *suite) login(t *testing.T, email string) string {
 	t.Helper()
+	s.seedUser(t, email)
 	status, body := s.doJSON(t, http.MethodPost, "/api/v1/auth/login", "",
-		map[string]string{"email": email, "password": "irrelevant-demo-password"})
+		map[string]string{"email": email, "password": e2ePassword})
 	if status != http.StatusOK {
 		t.Fatalf("login: got %d, want 200 (body %v)", status, body)
 	}

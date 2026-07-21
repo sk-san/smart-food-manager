@@ -39,7 +39,7 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	})
 
 	health := handler.NewHealthHandler(pool)
-	auth := handler.NewAuthHandler(cfg.JWTSecret, cfg.JWTExpiry)
+	auth := handler.NewAuthHandler(pool, cfg.JWTSecret, cfg.JWTExpiry)
 	nutrients := handler.NewNutrientHandler(pool, geminiClient)
 	labels := handler.NewLabelHandler(pool, geminiClient)
 	nutrition := handler.NewNutritionHandler(geminiClient)
