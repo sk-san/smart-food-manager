@@ -3,8 +3,11 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"net/mail"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,9 +20,6 @@ import (
 	"github.com/example/food-app/backend/internal/telemetry"
 )
 
-// DB is the subset of *pgxpool.Pool the auth handler needs. Depending on the
-// interface (rather than the concrete pool) keeps this handler unit-testable
-// with a fake.
 type DB interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
@@ -43,22 +43,50 @@ type loginResponse struct {
 	Token string `json:"token"`
 }
 
-// Login verifies the caller's email and password against the users table
-// (bcrypt-hashed) and, on success, issues a JWT carrying the user's id and
-// roles.
+// validateLoginInput validates and sanitizes input data.
+// Uses a pointer receiver so that strings.TrimSpace modifies the original struct in-place.
+func validateLoginInput(req *loginRequest) error {
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
+	if req.Email == "" || req.Password == "" {
+		return errors.New("email and password are required")
+	}
+
+	// Email length and RFC format check (ensures pure email format without display names)
+	if len(req.Email) > 254 {
+		return errors.New("invalid input format")
+	}
+	addr, err := mail.ParseAddress(req.Email)
+	if err != nil || addr.Address != req.Email {
+		return errors.New("invalid input format")
+	}
+
+	// Password length check (8+ chars for security, <= 72 bytes for bcrypt DoS prevention)
+	if len(req.Password) < 8 || len(req.Password) > 72 {
+		return errors.New("invalid input format")
+	}
+
+	return nil
+}
+
+// Login verifies the caller's email and password against the users table.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	ctx := r.Context()
 
 	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" || req.Password == "" {
-		logLoginAttempt(ctx, false, "invalid_request", time.Since(start))
-		writeError(w, http.StatusBadRequest, "email and password required")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logLoginAttempt(ctx, false, "invalid_request_body", time.Since(start))
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	// Hash the email for logs before we know whether the account exists, so
-	// every branch below (found or not) logs against the same identifier.
+	if err := validateLoginInput(&req); err != nil {
+		logLoginAttempt(ctx, false, "invalid_validation", time.Since(start))
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	logging.SetUserID(ctx, logging.HashIdentifier(req.Email))
 
 	var userID, passwordHash string
@@ -72,9 +100,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		WHERE u.email = $1 AND u.is_active
 		GROUP BY u.id, u.password_hash`, req.Email)
 	if err := row.Scan(&userID, &passwordHash, &roles); err != nil {
-		// Same response whether the account doesn't exist or the row can't be
-		// read, so the caller can't use timing/response differences to probe
-		// which accounts are registered.
 		logLoginAttempt(ctx, false, "invalid_credentials", time.Since(start))
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
 		return
@@ -97,9 +122,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, loginResponse{Token: token})
 }
 
-// logLoginAttempt emits the blueprint auth events and login metric.
-// Failure logs never reveal whether the account exists or which part of
-// the credentials was wrong.
 func logLoginAttempt(ctx context.Context, ok bool, reason string, d time.Duration) {
 	e := logging.Event{
 		Severity: logging.LevelInfo,
@@ -123,7 +145,6 @@ func logLoginAttempt(ctx context.Context, ok bool, reason string, d time.Duratio
 	))
 }
 
-// Me returns the authenticated caller's claims.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	claims, ok := middleware.ClaimsFromContext(r.Context())
 	if !ok {
