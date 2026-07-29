@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch makes the in-flight run obsolete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (fmt, vet, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt would rewrite: $unformatted"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      # The e2e package is behind the `e2e` build tag, so ./... covers unit
+      # tests only; the backend-e2e job runs the tagged suite.
+      - name: Unit tests
+        run: go test ./...
+
+  backend-e2e:
+    name: Backend e2e (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: foodapp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d foodapp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The suite reads DATABASE_URL and otherwise falls back to the
+      # docker-compose port (5433), which does not exist here.
+      DATABASE_URL: postgres://app:app@localhost:5432/foodapp?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Install psql
+        run: command -v psql >/dev/null || { sudo apt-get update && sudo apt-get install -y postgresql-client; }
+
+      # docker-compose applies these via docker-entrypoint-initdb.d, which a
+      # service container cannot do. Running them through the same DSN the
+      # suite uses also makes a broken database fail HERE: startSuite() calls
+      # t.Skip when the DB is unreachable, so without this step a
+      # misconfigured service container would report a green, empty run.
+      - name: Apply migrations
+        run: |
+          for f in backend/migrations/*.sql; do
+            echo "applying $f"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+
+      - name: E2E tests
+        working-directory: backend
+        run: go test -tags e2e -count=1 -v ./e2e
+
+  frontend:
+    name: Frontend (typecheck, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+  frontend-e2e:
+    name: Frontend e2e (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
+      # Playwright boots Vite itself and stubs the API, so no backend or
+      # database is needed here.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npx playwright test
+
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
