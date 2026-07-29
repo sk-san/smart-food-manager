@@ -287,13 +287,23 @@ func TestAuthAndRBAC(t *testing.T) {
 	})
 
 	t.Run("returns claims on /me with a valid token", func(t *testing.T) {
-		token := s.login(t, "e2e-me@example.com")
+		const email = "e2e-me@example.com"
+		token := s.login(t, email)
+
+		// The token subject is the users row id, not the address that was
+		// typed into the login form, so /me reports that uuid.
+		var wantID string
+		if err := s.pool.QueryRow(context.Background(),
+			`SELECT id::text FROM users WHERE email = $1`, email).Scan(&wantID); err != nil {
+			t.Fatalf("look up seeded user: %v", err)
+		}
+
 		status, body := s.doJSON(t, http.MethodGet, "/api/v1/me", token, nil)
 		if status != http.StatusOK {
 			t.Fatalf("got %d, want 200 (body %v)", status, body)
 		}
-		if body["user_id"] != "e2e-me@example.com" {
-			t.Errorf("user_id = %v, want e2e-me@example.com", body["user_id"])
+		if body["user_id"] != wantID {
+			t.Errorf("user_id = %v, want %s", body["user_id"], wantID)
 		}
 	})
 

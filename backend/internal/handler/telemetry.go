@@ -32,7 +32,7 @@ var telemetryAttrAllowlist = map[string]string{
 	"client.viewport_width": "i", "client.viewport_height": "i",
 	"http.request.method": "s", "http.route": "s",
 	"http.response.status_code": "i",
-	"error.type": "s", "error.code": "s", "error.message": "s",
+	"error.type":                "s", "error.code": "s", "error.message": "s",
 }
 
 // TelemetryHandler ingests structured UX/event logs from the frontend and
