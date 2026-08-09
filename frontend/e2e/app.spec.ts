@@ -415,3 +415,22 @@ test.describe("phone layout", () => {
     await expect(page.getByRole("button", { name: /Show Nutri/ })).toBeVisible();
   });
 });
+
+test.describe("companion dismissal", () => {
+  test.use({ viewport: PHONE });
+
+  test("stays dismissable while the reader is looking at the page", async ({ page }) => {
+    await page.getByRole("button", { name: /Show Nutri/ }).click();
+    await expect(page.getByRole("button", { name: /nutrition companion/ })).toBeVisible();
+
+    // Hovering a card turns Nutri away and folds the speech bubble to nothing
+    // (the mouse-enter handlers are on the cards, not on the page heading).
+    // The dismiss control used to live inside that bubble, so it vanished
+    // exactly when getting the cat out of the way mattered most.
+    await content(page).getByRole("heading", { name: "Calories today" }).hover();
+    await expect(page.getByText("Hi! I'm Nutri!")).toBeHidden();
+
+    await page.getByRole("button", { name: "Hide Nutri" }).click();
+    await expect(page.getByRole("button", { name: /Show Nutri/ })).toBeVisible();
+  });
+});

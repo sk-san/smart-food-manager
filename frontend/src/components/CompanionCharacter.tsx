@@ -532,9 +532,10 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({
     <div className={`${anchor} flex flex-col items-center gap-2 transition-all duration-300 ${scrollFade}`}>
       <style>{CMP_STYLES}</style>
 
-      {/* Speech Bubble */}
+      {/* Speech Bubble. Collapses to nothing while the reader is busy with the
+          content underneath, so nothing the reader needs may live in here. */}
       <div
-        className={`pointer-events-auto relative bg-surface border border-divider rounded-2xl p-3 pr-9 shadow-lg max-w-[200px] mb-2 transform transition-all duration-300 origin-bottom ${
+        className={`pointer-events-auto relative bg-surface border border-divider rounded-2xl p-3 shadow-lg max-w-[200px] mb-2 transform transition-all duration-300 origin-bottom ${
           message && !isLookingAtScreen ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
         }`}
       >
@@ -547,23 +548,27 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({
             </div>
           ) : message}
         </div>
-        <button
-          type="button"
-          onClick={() => handleCollapsedChange(true)}
-          aria-label="Hide Nutri"
-          className="absolute right-0.5 top-0.5 grid h-8 w-8 place-items-center rounded-full text-neutral-700 transition-colors hover:bg-neutral-200"
-        >
-          <X size={15} strokeWidth={2.75} />
-        </button>
         {/* Tail */}
         <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-surface border-b border-r border-divider transform rotate-45" />
       </div>
 
-      {/* Character — click (or Space/Enter) to pet the cat */}
+      {/* Character — click (or Space/Enter) to pet the cat. The dismiss control
+          rides on the cat rather than in the bubble: the bubble is hidden
+          whenever the reader is looking at the page, which is exactly when
+          getting the companion out of the way matters most. */}
+      <div className="pointer-events-auto relative">
+        <button
+          type="button"
+          onClick={() => handleCollapsedChange(true)}
+          aria-label="Hide Nutri"
+          className="absolute -right-1 top-7 z-10 grid h-8 w-8 place-items-center rounded-full border border-divider bg-surface text-neutral-700 shadow-md transition-colors hover:bg-neutral-200"
+        >
+          <X size={15} strokeWidth={2.75} />
+        </button>
       <button
         type="button"
         aria-label="Nutri, your nutrition companion. Activate to pet the cat for a fresh message."
-        className={`cmp-cat w-28 h-28 pointer-events-auto ${isLookingAtScreen ? 'is-away' : ''}`}
+        className={`cmp-cat w-28 h-28 ${isLookingAtScreen ? 'is-away' : ''}`}
         onClick={handlePet}
       >
         <span className="cmp-shadow" aria-hidden="true" />
@@ -655,6 +660,7 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({
           ))}
         </span>
       </button>
+      </div>
     </div>
   );
 };
