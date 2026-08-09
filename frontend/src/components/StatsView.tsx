@@ -51,9 +51,9 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
     const totalF = weeklyData.reduce((acc, d) => acc + d.fat, 0);
 
     return [
-      { name: 'Protein', value: totalP, color: 'var(--color-accent-500)' },
-      { name: 'Carbs', value: totalC, color: 'var(--color-accent-2-500)' },
-      { name: 'Fat', value: totalF, color: 'var(--color-neutral-500)' },
+      { name: 'Protein', value: totalP, color: 'var(--color-accent-600)' },
+      { name: 'Carbs', value: totalC, color: 'var(--color-accent-2-600)' },
+      { name: 'Fat', value: totalF, color: 'var(--color-neutral-600)' },
     ];
   }, [weeklyData]);
 
@@ -77,12 +77,12 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
 
       {/* Key Metrics Row */}
       <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-        <div className="flex items-center gap-4 rounded-card bg-surface p-5 shadow-sm">
+        <div className="panel flex items-center gap-4 p-5">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-accent-200 text-accent-800">
             <Flame size={21} strokeWidth={2.5} />
           </div>
           <div>
-            <p className="text-xs text-neutral-600">Avg. calories</p>
+            <p className="text-[13px] text-neutral-600">Avg. calories</p>
             <div className="flex items-center gap-2">
               <span className="font-display text-[22px] text-ink tabular-nums">
                 {averageCalories.toLocaleString('en-US')}
@@ -94,12 +94,12 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4 rounded-card bg-surface p-5 shadow-sm">
+        <div className="panel flex items-center gap-4 p-5">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-accent-2-200 text-accent-2-800">
             <Award size={21} strokeWidth={2.5} />
           </div>
           <div>
-            <p className="text-xs text-neutral-600">Goal streak</p>
+            <p className="text-[13px] text-neutral-600">Goal streak</p>
             <div className="flex items-center gap-2">
               <span className="font-display text-[22px] text-ink tabular-nums">5 days</span>
               <span className="tag tag-neutral">best: 12</span>
@@ -107,12 +107,12 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4 rounded-card bg-surface p-5 shadow-sm">
+        <div className="panel flex items-center gap-4 p-5">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-accent-2-200 text-accent-2-800">
             <TrendingUp size={21} strokeWidth={2.5} />
           </div>
           <div>
-            <p className="text-xs text-neutral-600">Weight trend</p>
+            <p className="text-[13px] text-neutral-600">Weight trend</p>
             <div className="flex items-center gap-2">
               <span className="font-display text-[22px] text-ink tabular-nums">-0.5 kg</span>
               <span className="tag tag-accent-2 flex items-center gap-0.5">
@@ -126,9 +126,9 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
       {/* Main Charts */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         {/* Weekly Calories Chart */}
-        <div className="rounded-card bg-surface p-6 shadow-sm md:px-7 lg:col-span-2">
+        <div className="card p-6 md:px-7 lg:col-span-2">
           <div className="mb-5 flex items-center justify-between">
-            <h3 className="text-[21px] text-ink">Weekly intake</h3>
+            <h2 className="text-[21px] text-ink">Weekly intake</h2>
             <span className="tag tag-neutral">calories</span>
           </div>
 
@@ -140,13 +140,13 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
                   dataKey="day"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: 'var(--color-neutral-600)', fontSize: 12 }}
+                  tick={{ fill: 'var(--color-neutral-700)', fontSize: 12 }}
                   dy={10}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: 'var(--color-neutral-600)', fontSize: 12 }}
+                  tick={{ fill: 'var(--color-neutral-700)', fontSize: 12 }}
                 />
                 <Tooltip cursor={{ fill: 'var(--color-neutral-200)' }} contentStyle={TOOLTIP_STYLE} />
                 <ReferenceLine
@@ -161,8 +161,8 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
                       key={`cell-${index}`}
                       fill={
                         entry.calories > goals.calories
-                          ? 'var(--color-accent-500)'
-                          : 'var(--color-accent-2-400)'
+                          ? 'var(--color-accent-600)'
+                          : 'var(--color-accent-2-500)'
                       }
                     />
                   ))}
@@ -170,14 +170,14 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <p className="mt-2 text-xs text-neutral-600 tabular-nums">
+          <p className="mt-2 text-[13px] text-neutral-600 tabular-nums">
             Dashed line is your {goals.calories.toLocaleString('en-US')} goal — terracotta bars went over.
           </p>
         </div>
 
         {/* Macro Distribution Pie Chart */}
-        <div className="flex flex-col rounded-card bg-surface p-6 shadow-sm md:px-7">
-          <h3 className="mb-5 text-[21px] text-ink">Macro split</h3>
+        <div className="panel flex flex-col p-6 md:px-7">
+          <h2 className="mb-5 text-[21px] text-ink">Macro split</h2>
           <div className="relative min-h-[250px] flex-1">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -206,40 +206,40 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
             {/* Center Text */}
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pb-8">
               <span className="font-display text-[26px] text-ink">Avg</span>
-              <span className="text-xs text-neutral-600">distribution</span>
+              <span className="text-[13px] text-neutral-600">distribution</span>
             </div>
           </div>
         </div>
       </div>
 
       {/* Top Foods / Insights List */}
-      <div className="rounded-card bg-surface p-6 shadow-sm md:px-7">
-        <h3 className="mb-4 text-[21px] text-ink">Highlights</h3>
+      <div className="panel p-6 md:px-7">
+        <h2 className="mb-4 text-[21px] text-ink">Highlights</h2>
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between rounded-3xl bg-bg p-4">
+          <div className="flex items-center justify-between rounded-3xl bg-surface p-4">
             <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-full bg-accent-200 text-accent-800">
                 <Flame size={19} strokeWidth={2.5} />
               </div>
               <div>
                 <p className="text-sm font-semibold text-ink">Highest calorie day</p>
-                <p className="text-xs text-neutral-600">Saturday</p>
+                <p className="text-[13px] text-neutral-600">Saturday</p>
               </div>
             </div>
-            <span className="font-display text-[17px] text-ink tabular-nums">2,600 kcal</span>
+            <span className="text-[15px] font-semibold text-ink tabular-nums">2,600 kcal</span>
           </div>
 
-          <div className="flex items-center justify-between rounded-3xl bg-bg p-4">
+          <div className="flex items-center justify-between rounded-3xl bg-surface p-4">
             <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-full bg-accent-2-200 text-accent-2-800">
                 <Zap size={19} strokeWidth={2.5} />
               </div>
               <div>
                 <p className="text-sm font-semibold text-ink">Top nutrient source</p>
-                <p className="text-xs text-neutral-600">Grilled Chicken Salad</p>
+                <p className="text-[13px] text-neutral-600">Grilled Chicken Salad</p>
               </div>
             </div>
-            <span className="font-display text-[17px] text-ink tabular-nums">45g protein</span>
+            <span className="text-[15px] font-semibold text-ink tabular-nums">45g protein</span>
           </div>
         </div>
       </div>

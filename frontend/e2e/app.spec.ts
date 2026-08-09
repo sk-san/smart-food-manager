@@ -33,6 +33,16 @@ function content(page: Page) {
   return page.locator("main");
 }
 
+// Both the desktop header nav and the mobile tab bar are labelled "Primary",
+// but only one is displayed at a time — the other is `display: none` and so is
+// out of the accessibility tree. Going through the navigation role therefore
+// resolves to whichever chrome the current viewport is showing.
+function tab(page: Page, name: string) {
+  return page.getByRole("navigation").getByRole("button", { name, exact: true });
+}
+
+const PHONE = { width: 390, height: 844 };
+
 // LoginView refuses to submit until both fields are filled, so signing in is
 // always fill-then-click. The credentials are arbitrary: LOGIN_PATH is stubbed.
 async function signIn(page: Page) {
@@ -203,5 +213,205 @@ test.describe("account", () => {
 
     await navTab(page, "Today").click();
     await expect(page.getByText("of 2,500 kcal", { exact: true })).toBeVisible();
+  });
+});
+
+test.describe("navigation semantics", () => {
+  test("marks the current tab and labels the primary nav", async ({ page }) => {
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    await expect(nav).toHaveCount(1);
+
+    await expect(tab(page, "Today")).toHaveAttribute("aria-current", "page");
+    await expect(tab(page, "Stats")).not.toHaveAttribute("aria-current", "page");
+
+    await tab(page, "Stats").click();
+    await expect(tab(page, "Stats")).toHaveAttribute("aria-current", "page");
+    await expect(tab(page, "Today")).not.toHaveAttribute("aria-current", "page");
+  });
+
+  // Only the phone can switch tabs from halfway down a screen: its tab bar is
+  // fixed to the bottom, where the desktop header scrolls away with the page.
+  test.describe("on a phone", () => {
+    test.use({ viewport: PHONE });
+
+    test("opens a new tab at the top and restores the one you left", async ({ page }) => {
+      await tab(page, "Account").click();
+      await expect(page.getByRole("heading", { name: "Your account" })).toBeVisible();
+
+      await page.mouse.wheel(0, 500);
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+      const left = await page.evaluate(() => window.scrollY);
+
+      // A tab you have not visited starts at its own beginning, not at the
+      // offset the previous screen happened to be scrolled to.
+      await tab(page, "Today").click();
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+      // Coming back returns you to where you were reading.
+      await tab(page, "Account").click();
+      expect(await page.evaluate(() => window.scrollY)).toBe(left);
+    });
+  });
+});
+
+test.describe("log food dialog", () => {
+  test("is a modal dialog that Escape closes, returning focus to its trigger", async ({ page }) => {
+    const trigger = headerButton(page, "Log food");
+    await trigger.click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveAttribute("aria-modal", "true");
+    // Named by its own heading rather than a hand-written label.
+    await expect(dialog).toHaveAccessibleName("Log Food");
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
+
+  test("keeps Tab inside the dialog", async ({ page }) => {
+    await headerButton(page, "Log food").click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+
+    // Twenty tabs is more than the dialog holds, so an untrapped focus ring
+    // would have escaped into the page behind by now.
+    for (let i = 0; i < 20; i++) await page.keyboard.press("Tab");
+    const inside = await page.evaluate(
+      () => !!document.activeElement?.closest('[role="dialog"]')
+    );
+    expect(inside).toBe(true);
+  });
+
+  test("labels its inputs and makes the upload region a real control", async ({ page }) => {
+    await headerButton(page, "Log food").click();
+
+    // Text mode: the textarea has a visible, associated label.
+    await expect(page.getByLabel("What did you eat?")).toBeVisible();
+
+    // Image mode: uploading is a button, so it is in the tab order and
+    // responds to Enter and Space — it used to be a bare clickable <div>.
+    await page.getByRole("button", { name: "Image" }).click();
+    const upload = page.getByRole("button", { name: "Food photo" });
+    await expect(upload).toBeVisible();
+    await upload.focus();
+    await expect(upload).toBeFocused();
+  });
+
+  test("announces progress instead of alerting on failure", async ({ page }) => {
+    await page.route(ANALYZE_PATH, (route) =>
+      route.fulfill({ status: 200, json: [] })
+    );
+
+    await headerButton(page, "Log food").click();
+    await page.getByLabel("What did you eat?").fill("something unrecognisable");
+
+    // A polite live region carries the in-flight state.
+    await expect(page.locator('[role="status"]')).toBeAttached();
+
+    await page.getByRole("button", { name: /Analyze/ }).click();
+
+    // An empty result reports itself in the dialog rather than in window.alert,
+    // which no screen reader and no keyboard user could deal with.
+    await expect(page.getByRole("alert")).toContainText(/No food was recognised/);
+    await expect(page.getByRole("dialog")).toBeVisible();
+  });
+});
+
+test.describe("dashboard layout preference", () => {
+  test("is chosen in Account and applies to Today", async ({ page }) => {
+    // Today shows one dashboard; the alternatives are personalization, so the
+    // switcher lives in Account rather than on the dashboard itself.
+    await expect(content(page).getByRole("radio", { name: /Plate/ })).toHaveCount(0);
+
+    await tab(page, "Account").click();
+    await page.getByRole("radio", { name: /Almanac/ }).check();
+
+    await tab(page, "Today").click();
+    // The Almanac is offered at every width now, desktop included.
+    await expect(page.getByRole("button", { name: /Log (breakfast|lunch|supper)/ })).toBeVisible();
+
+    await tab(page, "Account").click();
+    await page.getByRole("radio", { name: /Ledger/ }).check();
+    await tab(page, "Today").click();
+    await expect(page.getByRole("heading", { name: /at the table/ })).toBeVisible();
+  });
+});
+
+test.describe("false affordances", () => {
+  test("controls with nothing behind them say so", async ({ page }) => {
+    await tab(page, "Pantry").click();
+
+    const addItem = page.getByRole("button", { name: "Add item" });
+    await expect(addItem).toHaveAttribute("aria-disabled", "true");
+    // The reason is on the page, not only in a tooltip.
+    await expect(addItem).toHaveAccessibleDescription(/seed data/);
+
+    // Reminders and sound effects no longer render as switches you can flip.
+    await tab(page, "Account").click();
+    await expect(page.getByRole("switch", { name: "Dark mode" })).toBeVisible();
+    await expect(page.getByRole("switch", { name: /Reminders/ })).toHaveCount(0);
+    await expect(page.getByRole("switch", { name: /Sound effects/ })).toHaveCount(0);
+
+    // "View all" pointed at a list that was already fully shown.
+    await tab(page, "Today").click();
+    await expect(page.getByRole("button", { name: "View all" })).toHaveCount(0);
+  });
+});
+
+test.describe("phone layout", () => {
+  test.use({ viewport: PHONE });
+
+  test("shows the larder as an expiry-sorted list with no sideways scrolling", async ({ page }) => {
+    await tab(page, "Pantry").click();
+
+    // The timeline canvas is a desktop-only option; the phone gets the list.
+    await expect(page.getByRole("button", { name: "Timeline" })).toHaveCount(0);
+
+    const items = content(page).locator("li");
+    await expect(items.first()).toContainText("Baby spinach");
+    // Everything the timeline hid behind a hover tooltip is now written out.
+    await expect(items.first()).toContainText("1 day left");
+
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth
+    );
+    expect(overflows).toBe(false);
+  });
+
+  test("gives the icon-only log out an accessible name and a 44px target", async ({ page }) => {
+    const logout = page.getByRole("button", { name: "Log out" }).first();
+    await expect(logout).toBeVisible();
+
+    const box = await logout.boundingBox();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  });
+
+  test("folds the companion away by default and remembers being reopened", async ({ page }) => {
+    // Nothing narrower than a wide desktop has a gutter to spare, so Nutri
+    // starts as a badge rather than parked on top of a card.
+    const reopen = page.getByRole("button", { name: /Show Nutri/ });
+    await expect(reopen).toBeVisible();
+
+    await reopen.click();
+    const cat = page.getByRole("button", { name: /nutrition companion/ });
+    await expect(cat).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole("button", { name: /nutrition companion/ })).toBeVisible();
+
+    await page.getByRole("button", { name: "Hide Nutri" }).click();
+    await expect(page.getByRole("button", { name: /Show Nutri/ })).toBeVisible();
+  });
+
+  test("hides the companion while the log food dialog is open", async ({ page }) => {
+    await expect(page.getByRole("button", { name: /Show Nutri/ })).toBeVisible();
+
+    await page.getByRole("button", { name: "Log food" }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Nutri/ })).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: /Show Nutri/ })).toBeVisible();
   });
 });

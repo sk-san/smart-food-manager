@@ -4,10 +4,26 @@
 
 /*
  * "Organic" design-system tokens, taken from the Dashboard Ideas design doc
- * (direction 1a "Kitchen Ledger"). The light values are the source of truth;
- * the .dark block flips each tonal ramp end-for-end so a given step keeps its
- * visual role (e.g. neutral-200 stays "the track color") on a dark ground.
- * Consumed by tailwind.config.js as var(--color-*).
+ * (direction 1a "Kitchen Ledger"). Consumed by tailwind.config.js as
+ * var(--color-*).
+ *
+ * The two themes used to be exact mirrors — light step N was dark step 10−N.
+ * That is no longer true for the mid steps, and deliberately so: the light
+ * ground (#f5ead8/#ebddc5) is far closer to white than the dark ground
+ * (#211d16/#2c261d) is to black, so a mirrored ramp cannot carry the same
+ * contrast in both. The mid steps are now tuned per theme against their own
+ * ground. Roles per step, and the floor each has to clear:
+ *
+ *   100–300  fills, tracks, tag backgrounds        (no contrast requirement)
+ *   400      hairlines and decorative rules         (decorative)
+ *   500      meaningful graphics — never text       (≥3:1 on bg/surface)
+ *   600      secondary text                         (≥4.5:1 on bg/surface)
+ *   700–900  body and emphasis text                 (≥4.5:1, with headroom)
+ *
+ * --color-accent stays the brand terracotta for gradients, focus rings and
+ * other non-text use. Text and solid buttons take -600/-700 or
+ * --color-accent-solid, which is picked per theme to clear AA against the
+ * label it carries.
  */
 @layer base {
   :root {
@@ -20,24 +36,26 @@
     --color-accent-2: #7a8a5e;
     --color-divider: rgb(32 30 29 / 0.16);
 
-    /* Tonal ramps — generated on one shared lightness scale, so the same
-       step of any role matches the others in visual value. */
+    /* Primary-action fill. Carries --color-bg as its label: 5.7:1. */
+    --color-accent-solid: #8c491a;
+    --color-accent-solid-hover: #793d13;
+
     --color-neutral-100: #f9f4ed;
     --color-neutral-200: #eee7db;
     --color-neutral-300: #dcd3c4;
-    --color-neutral-400: #c0b6a5;
-    --color-neutral-500: #a19786;
-    --color-neutral-600: #82796a;
-    --color-neutral-700: #645c50;
-    --color-neutral-800: #474238;
-    --color-neutral-900: #2e2b25;
+    --color-neutral-400: #b3a894;
+    --color-neutral-500: #857a67;
+    --color-neutral-600: #68604e;
+    --color-neutral-700: #524a3d;
+    --color-neutral-800: #3b352b;
+    --color-neutral-900: #262319;
 
     --color-accent-100: #fff2eb;
     --color-accent-200: #ffe1d0;
     --color-accent-300: #ffc6a5;
-    --color-accent-400: #f6a06b;
-    --color-accent-500: #d67f48;
-    --color-accent-600: #b2622d;
+    --color-accent-400: #e78d55;
+    --color-accent-500: #c06a33;
+    --color-accent-600: #9e5623;
     --color-accent-700: #8c491a;
     --color-accent-800: #643312;
     --color-accent-900: #402310;
@@ -45,9 +63,9 @@
     --color-accent-2-100: #f0fae1;
     --color-accent-2-200: #e1eecc;
     --color-accent-2-300: #ccdbb2;
-    --color-accent-2-400: #aebf92;
-    --color-accent-2-500: #8fa073;
-    --color-accent-2-600: #728157;
+    --color-accent-2-400: #94a678;
+    --color-accent-2-500: #77875c;
+    --color-accent-2-600: #616e4a;
     --color-accent-2-700: #56633f;
     --color-accent-2-800: #3d472b;
     --color-accent-2-900: #272e1b;
@@ -62,6 +80,10 @@
     --color-accent: #d67f48;
     --color-accent-2: #8fa073;
     --color-divider: rgb(240 231 214 / 0.18);
+
+    /* Carries --color-bg as its label: 5.6:1. */
+    --color-accent-solid: #d67f48;
+    --color-accent-solid-hover: #e08b56;
 
     --color-neutral-100: #2e2b25;
     --color-neutral-200: #474238;
@@ -148,12 +170,14 @@
 /* Shared "Organic" component classes, mirrored from the design doc's system
    (.btn, .tag, .input …) so every view composes the same pieces. */
 @layer components {
+  /* Small labels are still small, but no longer sub-legible: the floor for
+     anything carrying meaning is 12px. */
   .kicker {
-    @apply text-[10px] uppercase tracking-[0.1em];
+    @apply text-xs font-semibold uppercase tracking-[0.1em];
   }
 
   .tag {
-    @apply inline-flex items-center rounded-full px-2.5 py-[3px] text-[11px] tracking-[0.02em];
+    @apply inline-flex items-center rounded-full px-2.5 py-[3px] text-xs tracking-[0.02em];
   }
   .tag-accent {
     @apply bg-accent-100 text-accent-800;
@@ -165,11 +189,23 @@
     @apply bg-neutral-100 text-neutral-800;
   }
 
+  /* Elevation vocabulary. `.card` is the loud one — a filled, rounded, lifted
+     surface — and is spent only on the primary summary or action of a screen.
+     Everything secondary uses `.panel`: same rhythm, no fill and no shadow, so
+     a screen reads as one or two focal blocks against quieter supporting ones
+     instead of a uniform field of identical cards. */
+  .card {
+    @apply rounded-card bg-surface shadow-sm;
+  }
+  .panel {
+    @apply rounded-[20px] border border-divider;
+  }
+
   .btn {
-    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full px-5 py-2.5 font-display text-sm leading-tight text-ink transition-colors disabled:cursor-not-allowed disabled:opacity-45;
+    @apply inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-1.5 rounded-full px-5 py-2.5 font-display text-sm leading-tight text-ink transition-colors disabled:cursor-not-allowed disabled:opacity-45;
   }
   .btn-primary {
-    @apply bg-accent text-bg hover:bg-accent-600 active:bg-accent-700;
+    @apply bg-accent-solid text-bg hover:bg-accent-solid-hover active:bg-accent-solid-hover;
   }
   .btn-secondary {
     @apply border border-divider hover:bg-neutral-200 active:bg-neutral-300;
@@ -178,16 +214,22 @@
     @apply px-2 py-1.5 text-accent-700 hover:bg-accent-100;
   }
 
+  /* Fixed chrome (bottom nav, FAB, companion) sits above the home indicator on
+     notched phones rather than under it. */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
   /* Softens photography into the palette (the design system's photo look). */
   .washed {
     filter: saturate(0.6) contrast(0.85) brightness(1.1) opacity(0.94);
   }
 
   .field-label {
-    @apply mb-1.5 block text-xs text-neutral-700;
+    @apply mb-1.5 block text-[13px] font-semibold text-neutral-700;
   }
   .input {
-    @apply w-full min-h-[38px] rounded-full border border-divider bg-bg px-3.5 py-1.5 text-sm text-ink transition-colors placeholder:text-neutral-500 hover:border-neutral-500 focus:border-accent focus:outline-none;
+    @apply w-full min-h-[44px] rounded-full border border-divider bg-bg px-3.5 py-1.5 text-sm text-ink transition-colors placeholder:text-neutral-600 hover:border-neutral-500 focus:border-accent focus:outline-none;
   }
 }
 

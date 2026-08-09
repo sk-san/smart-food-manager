@@ -26,6 +26,9 @@ export default {
         divider: v("divider"),
         accent: { DEFAULT: v("accent"), ...ramp("accent") },
         "accent-2": { DEFAULT: v("accent-2"), ...ramp("accent-2") },
+        // Primary-action fill. Split from the `accent` ramp because each theme
+        // picks its own value to clear AA against the label it carries.
+        "accent-solid": { DEFAULT: v("accent-solid"), hover: v("accent-solid-hover") },
         neutral: ramp("neutral"),
       },
       borderRadius: {
