@@ -123,27 +123,25 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin, onLoggedI
             />
           </div>
 
-          <a href="#" onClick={(e) => e.preventDefault()} className="self-end text-[12.5px] text-accent-700">
-            Forgot password?
-          </a>
-
-          {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+          {error && (
+            <p role="alert" className="mt-3 text-sm font-semibold text-accent-800">
+              {error}
+            </p>
+          )}
 
           <button type="submit" disabled={isSubmitting} className="btn btn-primary mt-5 w-full py-3 text-[15px] shadow-sm flex items-center justify-center gap-2">
             {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : 'Sign in'}
           </button>
 
-          <div className="my-4 flex items-center gap-3 text-xs text-neutral-500">
-            <span className="h-px flex-1 bg-divider" />
-            new here?
-            <span className="h-px flex-1 bg-divider" />
-          </div>
+          {/* Sign-up and password recovery have no endpoint behind them yet
+              (the API exposes login only), so the screen says so rather than
+              offering controls that lead nowhere. */}
+          <p className="mt-5 text-[13px] leading-relaxed text-neutral-700">
+            Accounts are created by invitation while Nutri is in testing — sign-up and password
+            recovery are not open yet. Use a guest role below to look around.
+          </p>
 
-          <button type="button" className="btn btn-secondary w-full py-3" disabled={isSubmitting}>
-            Create an account
-          </button>
-
-          <div className="kicker mb-2 mt-6 text-center text-neutral-500">Guest access · testing only</div>
+          <div className="kicker mb-2 mt-6 text-center text-neutral-700">Guest access · testing only</div>
           <div className="flex gap-2.5">
             <button
               type="button"

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Carrot, LayoutGrid, Leaf, Plus, TrendingUp, User, LogOut } from "lucide-react";
 import AddEntryModal from "./components/AddEntryModal";
 import CompanionCharacter from "./components/CompanionCharacter";
@@ -15,6 +15,11 @@ import {
   DEFAULT_PROFILE,
   GUEST_PROFILES,
 } from "./types/nutrition";
+import {
+  DashboardLayout,
+  readDashboardLayout,
+  writeDashboardLayout,
+} from "./preferences";
 import { logNavigation, logScreenView } from "./telemetry/events";
 import { getToken, setToken } from "./api/client";
 
@@ -35,20 +40,30 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [isLookingAtContent, setIsLookingAtContent] = useState(false);
-  
+  const [dashboardLayout, setDashboardLayout] = useState<DashboardLayout>(readDashboardLayout);
+
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!getToken());
-  
+
   const [guestRole, setGuestRole] = useState<GuestRole | null>(null);
 
   const profile = guestRole ? GUEST_PROFILES[guestRole] : DEFAULT_PROFILE;
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
 
+  // Where the reader had each tab scrolled to. Without this, switching tabs
+  // keeps the window offset from the tab you left, so a short screen can open
+  // halfway down — or past its own end. A tab not yet visited restores to 0.
+  const scrollOffsets = useRef<Partial<Record<Tab, number>>>({});
+
+  useLayoutEffect(() => {
+    window.scrollTo(0, scrollOffsets.current[activeTab] ?? 0);
+  }, [activeTab]);
+
   const handleLogout = () => {
-    logNavigation(activeTab, "login"); 
+    logNavigation(activeTab, "login");
     setToken(null);
     setIsLoggedIn(false);
     setGuestRole(null);
-    logScreenView("login"); 
+    logScreenView("login");
   };
 
   const handleToggleDark = () => {
@@ -66,9 +81,17 @@ function App() {
 
   const handleTabChange = (next: Tab) => {
     if (next === activeTab) return;
+    scrollOffsets.current[activeTab] = window.scrollY;
     logNavigation(activeTab, next);
     setActiveTab(next);
     logScreenView(next);
+  };
+
+  const handleDashboardLayoutChange = (next: DashboardLayout) => {
+    if (next === dashboardLayout) return;
+    logNavigation(`dashboard:${dashboardLayout}`, `dashboard:${next}`);
+    setDashboardLayout(next);
+    writeDashboardLayout(next);
   };
 
   const todayTotals = useMemo(() => {
@@ -101,6 +124,7 @@ function App() {
   const enterApp = (from: string) => {
     setIsLoggedIn(true);
     setActiveTab("dashboard");
+    scrollOffsets.current = {};
     logNavigation(from, "dashboard");
     logScreenView("dashboard");
   };
@@ -141,9 +165,9 @@ function App() {
       onClick={() => handleTabChange("settings")}
       aria-label="Account"
       aria-current={activeTab === "settings" ? "page" : undefined}
-      className="grid h-9 w-9 place-items-center rounded-full bg-accent-300 text-[13px] font-semibold text-accent-900 transition-transform hover:scale-105 active:scale-95"
+      className="grid h-11 w-11 place-items-center rounded-full text-[13px] font-semibold text-accent-900 transition-transform hover:scale-105 active:scale-95"
     >
-      {profile.initials}
+      <span className="grid h-9 w-9 place-items-center rounded-full bg-accent-300">{profile.initials}</span>
     </button>
   );
 
@@ -152,7 +176,7 @@ function App() {
       {/* Top navigation (desktop) */}
       <header className="mx-auto hidden w-full max-w-6xl items-center gap-7 px-8 pt-7 md:flex">
         <div className="mr-auto">{brand}</div>
-        <nav className="flex items-center gap-6">
+        <nav aria-label="Primary" className="flex items-center gap-6">
           {navItems.map(({ tab }) => (
             <button
               key={tab}
@@ -161,7 +185,7 @@ function App() {
               className={`text-[13px] transition-colors ${
                 activeTab === tab
                   ? "font-semibold text-accent-700"
-                  : "text-neutral-600 hover:text-ink"
+                  : "text-neutral-700 hover:text-ink"
               }`}
             >
               {TAB_LABELS[tab]}
@@ -175,7 +199,7 @@ function App() {
         {avatar}
         <button
           onClick={handleLogout}
-          className="ml-2 flex items-center gap-1 px-3 py-1.5 rounded-lg text-neutral-600 hover:text-red-600 hover:bg-neutral-100 transition-all text-[13px] font-medium"
+          className="ml-2 flex items-center gap-1 rounded-lg px-3 py-1.5 text-[13px] font-medium text-neutral-700 transition-all hover:bg-neutral-100 hover:text-accent-700"
         >
           <LogOut size={16} />
           <span>Log Out</span>
@@ -185,21 +209,27 @@ function App() {
       {/* Compact top bar (mobile) */}
       <div className="flex items-center justify-between px-5 pt-5 md:hidden">
         {brand}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1">
           {avatar}
-          <button onClick={handleLogout} className="text-neutral-500 hover:text-red-600">
+          <button
+            onClick={handleLogout}
+            aria-label="Log out"
+            className="grid h-11 w-11 place-items-center rounded-full text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-accent-700"
+          >
             <LogOut size={20} />
           </button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <main className="relative mx-auto w-full max-w-6xl flex-1 px-5 pb-32 pt-5 md:px-8 md:pb-14 md:pt-6">
+      {/* Main content. The bottom padding clears the fixed tab bar plus the
+          home indicator on notched phones. */}
+      <main className="relative mx-auto w-full max-w-6xl flex-1 px-5 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-5 md:px-8 md:pb-14 md:pt-6">
         {activeTab === "dashboard" ? (
           <DashboardView
             todayTotals={todayTotals}
             goals={goals}
             entries={entries}
+            layout={dashboardLayout}
             onLogFood={() => setIsModalOpen(true)}
             onOpenStats={() => handleTabChange("history")}
             onHoverStart={handleContentHoverStart}
@@ -217,39 +247,58 @@ function App() {
             onToggleDark={handleToggleDark}
             onSignOut={handleLogout}
             profile={profile}
+            dashboardLayout={dashboardLayout}
+            onDashboardLayoutChange={handleDashboardLayoutChange}
           />
         )}
-
-        {/* Cute AI Character - Persistent across views */}
-        <CompanionCharacter stats={todayTotals} goals={goals} isLookingAtScreen={isLookingAtContent} />
       </main>
 
-      {/* Floating Action Button (mobile) */}
-      <button
-        onClick={() => setIsModalOpen(true)}
-        className="fixed bottom-24 right-5 z-50 grid h-14 w-14 place-items-center rounded-full bg-accent text-bg shadow-md transition-transform hover:scale-105 active:scale-95 md:hidden"
-        aria-label="Log food"
-      >
-        <Plus size={26} strokeWidth={2.75} />
-      </button>
+      {/* Nutri — persistent across views, but stands down while the log-food
+          dialog owns the screen. */}
+      <CompanionCharacter
+        stats={todayTotals}
+        goals={goals}
+        isLookingAtScreen={isLookingAtContent}
+        isSuppressed={isModalOpen}
+      />
+
+      {/* Floating action button (mobile), clear of the tab bar and the home
+          indicator. Hidden while the dialog it opens is up. */}
+      {!isModalOpen && (
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] right-5 z-40 grid h-14 w-14 place-items-center rounded-full bg-accent-solid text-bg shadow-md transition-transform hover:scale-105 active:scale-95 md:hidden"
+          aria-label="Log food"
+        >
+          <Plus size={26} strokeWidth={2.75} />
+        </button>
+      )}
 
       <AddEntryModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onAdd={handleAddEntries} />
 
-      {/* Mobile Bottom Nav */}
-      <div className="fixed inset-x-0 bottom-0 z-40 flex h-20 items-center justify-around border-t border-divider bg-surface px-4 md:hidden">
-        {navItems.map(({ tab, icon: Icon }) => (
-          <button
-            key={tab}
-            onClick={() => handleTabChange(tab)}
-            className={`flex flex-col items-center gap-1 p-2 transition-colors ${
-              activeTab === tab ? "text-accent-700" : "text-neutral-500"
-            }`}
-          >
-            <Icon size={23} strokeWidth={2.75} />
-            <span className="text-[11px] font-semibold">{TAB_LABELS[tab]}</span>
-          </button>
-        ))}
-      </div>
+      {/* Mobile tab bar */}
+      <nav
+        aria-label="Primary"
+        className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-divider bg-surface md:hidden"
+      >
+        <div className="flex h-20 items-center justify-around px-2">
+          {navItems.map(({ tab, icon: Icon }) => (
+            <button
+              key={tab}
+              onClick={() => handleTabChange(tab)}
+              aria-current={activeTab === tab ? "page" : undefined}
+              className={`flex min-h-[52px] min-w-[64px] flex-col items-center justify-center gap-1 rounded-2xl px-2 transition-colors ${
+                activeTab === tab ? "text-accent-700" : "text-neutral-700"
+              }`}
+            >
+              <Icon size={23} strokeWidth={2.75} />
+              <span className={`text-xs ${activeTab === tab ? "font-semibold" : "font-medium"}`}>
+                {TAB_LABELS[tab]}
+              </span>
+            </button>
+          ))}
+        </div>
+      </nav>
     </div>
   );
 }

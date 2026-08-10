@@ -1,12 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { X } from 'lucide-react';
 import { getCompanionMessage } from '../services/nutritionService';
 import { DailyGoal, NutritionData } from '../types/nutrition';
+import { COMPANION_ROOM_QUERY, readCompanionCollapsed, writeCompanionCollapsed } from '../preferences';
+import { useIsMobile, useMediaQuery } from '../hooks/useMediaQuery';
 
 interface CompanionCharacterProps {
   stats: NutritionData;
   goals: DailyGoal;
   isLookingAtScreen?: boolean;
+  /** Something else owns the screen (a dialog) — stand down entirely. */
+  isSuppressed?: boolean;
 }
+
+/** How long after the last scroll event Nutri fades back in. */
+const SCROLL_IDLE_MS = 450;
+
+// Silhouette, shared between the full rig and the folded-away badge.
+const EAR_L_PATH =
+  'M 532,452 C 518,394 526,330 552,320 C 576,310 592,344 620,372 C 646,396 664,388 676,392 C 620,404 566,424 532,452 Z';
+const EAR_R_PATH =
+  'M 948,452 C 962,394 954,330 928,320 C 904,310 888,344 860,372 C 834,396 816,388 804,392 C 860,404 914,424 948,452 Z';
+const HEAD_PATH =
+  'M 690,384 C 780,372 872,384 942,424 C 1014,466 1052,552 1040,646 C 1029,736 976,798 890,806 C 786,816 636,810 556,780 C 462,745 400,656 414,572 C 428,482 540,398 690,384 Z';
 
 interface Particle {
   id: number;
@@ -43,10 +59,58 @@ const AWAY_LEAN = 'translateY(6px) rotate(-5deg)';
 // App integration is preserved from the previous companion: it shows a speech
 // bubble fed by getCompanionMessage, reacts when the user logs food, sprinkles
 // particles, and turns away when the user is busy reading content.
-const CompanionCharacter: React.FC<CompanionCharacterProps> = ({ stats, goals, isLookingAtScreen = false }) => {
+const CompanionCharacter: React.FC<CompanionCharacterProps> = ({
+  stats,
+  goals,
+  isLookingAtScreen = false,
+  isSuppressed = false,
+}) => {
   const [message, setMessage] = useState<string>("Hi! I'm Nutri! (◕‿◕)");
   const [isTyping, setIsTyping] = useState(false);
   const [particles, setParticles] = useState<Particle[]>([]);
+  const [collapsedPref, setCollapsedPref] = useState<boolean | null>(readCompanionCollapsed);
+  const [isScrolling, setIsScrolling] = useState(false);
+
+  const isMobile = useIsMobile();
+  // Until the reader says otherwise, Nutri is out only where the page leaves a
+  // gutter wide enough to hold it — so it never starts life on top of a card.
+  const hasRoom = useMediaQuery(COMPANION_ROOM_QUERY);
+  const isCollapsed = collapsedPref ?? !hasRoom;
+  const scrollingRef = useRef(false);
+
+  // On a phone the companion is parked over the content it is commenting on,
+  // so it gets out of the way while the reader is moving through the page and
+  // comes back once they settle. On desktop it sits in a clear margin, and
+  // flickering on every wheel tick would be worse than staying put.
+  useEffect(() => {
+    if (!isMobile) {
+      scrollingRef.current = false;
+      setIsScrolling(false);
+      return;
+    }
+    let idle: ReturnType<typeof setTimeout>;
+    const onScroll = () => {
+      if (!scrollingRef.current) {
+        scrollingRef.current = true;
+        setIsScrolling(true);
+      }
+      clearTimeout(idle);
+      idle = setTimeout(() => {
+        scrollingRef.current = false;
+        setIsScrolling(false);
+      }, SCROLL_IDLE_MS);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      clearTimeout(idle);
+    };
+  }, [isMobile]);
+
+  const handleCollapsedChange = (collapsed: boolean) => {
+    setCollapsedPref(collapsed);
+    writeCompanionCollapsed(collapsed);
+  };
 
   const svgRef = useRef<SVGSVGElement>(null);
   const rigRef = useRef<CatRig | null>(null);
@@ -90,9 +154,14 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({ stats, goals, i
   // --- The cat rig ---------------------------------------------------------
   // Built once on mount. Holds every timer it schedules so unmounting (or a
   // cheer interrupting an idle mood) can cancel the whole set at once.
+  // Rebuilt whenever the cat leaves or re-enters the DOM (folded away, or a
+  // dialog took the screen) so no timer or pointer listener outlives it.
   useEffect(() => {
     const svg = svgRef.current;
-    if (!svg) return;
+    if (!svg) {
+      rigRef.current = null;
+      return;
+    }
 
     const q = <T extends SVGElement>(sel: string) => svg.querySelector<T>(sel);
     const qa = <T extends SVGElement>(sel: string) => Array.from(svg.querySelectorAll<T>(sel));
@@ -354,7 +423,7 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({ stats, goals, i
       rigRef.current?.destroy();
       rigRef.current = null;
     };
-  }, []);
+  }, [isCollapsed, isSuppressed]);
 
   // Keep the rig's view of "is the user reading?" in sync, then let it re-pose.
   useEffect(() => {
@@ -422,17 +491,55 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({ stats, goals, i
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stats.calories, stats.protein]);
 
+  // A dialog is up: the companion is decoration over a modal task, so it goes
+  // away completely rather than competing with it.
+  if (isSuppressed) return null;
+
+  // Anchored above the tab bar and the home indicator on a phone; in the
+  // desktop margin otherwise.
+  const anchor =
+    'cmp fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-4 md:bottom-8 md:left-8 z-30 pointer-events-none';
+  // Fading rather than unmounting keeps the rig (and its idle loops) alive
+  // across a scroll, so Nutri picks up mid-pose instead of resetting.
+  const scrollFade = isScrolling
+    ? 'opacity-0 translate-y-2 pointer-events-none'
+    : 'opacity-100 translate-y-0';
+
+  if (isCollapsed) {
+    return (
+      <div className={anchor}>
+        <style>{CMP_STYLES}</style>
+        <button
+          type="button"
+          onClick={() => handleCollapsedChange(false)}
+          aria-label="Show Nutri, your nutrition companion"
+          className={`pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-divider bg-surface shadow-md transition-all duration-300 hover:scale-105 active:scale-95 ${scrollFade}`}
+        >
+          <svg viewBox="392 296 792 536" className="h-7 w-7 overflow-visible" aria-hidden="true" focusable="false">
+            <path className="cmp-cat-body" d={EAR_L_PATH} />
+            <path className="cmp-cat-body" d={EAR_R_PATH} />
+            <path className="cmp-cat-body" d={HEAD_PATH} />
+            {[612, 776].map((cx) => (
+              <rect key={cx} className="cmp-eye-fill" x={cx - 18} y="530" width="36" height="72" rx="18" />
+            ))}
+          </svg>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="cmp fixed bottom-24 left-4 md:bottom-8 md:left-8 z-40 flex flex-col items-center gap-2 pointer-events-none">
+    <div className={`${anchor} flex flex-col items-center gap-2 transition-all duration-300 ${scrollFade}`}>
       <style>{CMP_STYLES}</style>
 
-      {/* Speech Bubble */}
+      {/* Speech Bubble. Collapses to nothing while the reader is busy with the
+          content underneath, so nothing the reader needs may live in here. */}
       <div
         className={`pointer-events-auto relative bg-surface border border-divider rounded-2xl p-3 shadow-lg max-w-[200px] mb-2 transform transition-all duration-300 origin-bottom ${
           message && !isLookingAtScreen ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
         }`}
       >
-        <div className="text-[13px] text-ink font-medium leading-tight">
+        <div className="text-[13px] text-ink font-medium leading-tight" role="status" aria-live="polite">
           {isTyping ? (
             <div className="flex gap-1 items-center h-5">
               <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -445,11 +552,23 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({ stats, goals, i
         <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-surface border-b border-r border-divider transform rotate-45" />
       </div>
 
-      {/* Character — click (or Space/Enter) to pet the cat */}
+      {/* Character — click (or Space/Enter) to pet the cat. The dismiss control
+          rides on the cat rather than in the bubble: the bubble is hidden
+          whenever the reader is looking at the page, which is exactly when
+          getting the companion out of the way matters most. */}
+      <div className="pointer-events-auto relative">
+        <button
+          type="button"
+          onClick={() => handleCollapsedChange(true)}
+          aria-label="Hide Nutri"
+          className="absolute -right-1 top-7 z-10 grid h-8 w-8 place-items-center rounded-full border border-divider bg-surface text-neutral-700 shadow-md transition-colors hover:bg-neutral-200"
+        >
+          <X size={15} strokeWidth={2.75} />
+        </button>
       <button
         type="button"
         aria-label="Nutri, your nutrition companion. Activate to pet the cat for a fresh message."
-        className={`cmp-cat w-28 h-28 pointer-events-auto ${isLookingAtScreen ? 'is-away' : ''}`}
+        className={`cmp-cat w-28 h-28 ${isLookingAtScreen ? 'is-away' : ''}`}
         onClick={handlePet}
       >
         <span className="cmp-shadow" aria-hidden="true" />
@@ -469,20 +588,9 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({ stats, goals, i
                   strokeLinecap="round"
                 />
                 <g data-g="breath" className="cmp-breath">
-                  <path
-                    data-g="earL"
-                    className="cmp-cat-body cmp-ear cmp-ear-l"
-                    d="M 532,452 C 518,394 526,330 552,320 C 576,310 592,344 620,372 C 646,396 664,388 676,392 C 620,404 566,424 532,452 Z"
-                  />
-                  <path
-                    data-g="earR"
-                    className="cmp-cat-body cmp-ear cmp-ear-r"
-                    d="M 948,452 C 962,394 954,330 928,320 C 904,310 888,344 860,372 C 834,396 816,388 804,392 C 860,404 914,424 948,452 Z"
-                  />
-                  <path
-                    className="cmp-cat-body"
-                    d="M 690,384 C 780,372 872,384 942,424 C 1014,466 1052,552 1040,646 C 1029,736 976,798 890,806 C 786,816 636,810 556,780 C 462,745 400,656 414,572 C 428,482 540,398 690,384 Z"
-                  />
+                  <path data-g="earL" className="cmp-cat-body cmp-ear cmp-ear-l" d={EAR_L_PATH} />
+                  <path data-g="earR" className="cmp-cat-body cmp-ear cmp-ear-r" d={EAR_R_PATH} />
+                  <path className="cmp-cat-body" d={HEAD_PATH} />
                 </g>
 
                 {/* Eyes are background-coloured cutouts. Each socket carries all
@@ -552,6 +660,7 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({ stats, goals, i
           ))}
         </span>
       </button>
+      </div>
     </div>
   );
 };

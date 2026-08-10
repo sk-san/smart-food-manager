@@ -26,15 +26,6 @@ const clockPoint = (hours: number, radius: number) => {
 
 const bubbleRadius = (kcal: number) => Math.min(30, Math.max(16, 12 + kcal * 0.035));
 
-/** Short lowercase label for a meal bubble ("salad", "oatmeal"): the last
- * word of the name, or the first that fits if the last is too wide. */
-const bubbleLabel = (name: string) => {
-  const words = name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-  const last = words[words.length - 1] ?? '';
-  const fitting = last.length <= 8 ? last : words.find((w) => w.length <= 8);
-  return fitting ?? last.slice(0, 8);
-};
-
 const HOUR_LABELS: { text: string; x: number; y: number }[] = [
   { text: '12a', x: CENTER, y: 26 },
   { text: '6a', x: 322, y: 174 },
@@ -63,21 +54,21 @@ const DayPlateBoard: React.FC<DayPlateBoardProps> = ({
       value: todayTotals.protein,
       goal: goals.protein,
       kickerClass: 'text-accent-700',
-      barColor: 'var(--color-accent-500)',
+      barColor: 'var(--color-accent-600)',
     },
     {
       label: 'Carbs',
       value: todayTotals.carbs,
       goal: goals.carbs,
       kickerClass: 'text-accent-2-700',
-      barColor: 'var(--color-accent-2-500)',
+      barColor: 'var(--color-accent-2-600)',
     },
     {
       label: 'Fat',
       value: todayTotals.fat,
       goal: goals.fat,
-      kickerClass: 'text-neutral-700',
-      barColor: 'var(--color-accent-700)',
+      kickerClass: 'text-accent-800',
+      barColor: 'var(--color-accent-800)',
     },
   ];
 
@@ -118,7 +109,7 @@ const DayPlateBoard: React.FC<DayPlateBoardProps> = ({
           cy={CENTER}
           r={RING_RADIUS}
           fill="none"
-          stroke="var(--color-accent-500)"
+          stroke="var(--color-accent-600)"
           strokeWidth="13"
           strokeLinecap="round"
           strokeDasharray={`${progress * RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
@@ -132,9 +123,9 @@ const DayPlateBoard: React.FC<DayPlateBoardProps> = ({
             x={x}
             y={y}
             textAnchor="middle"
-            fontSize="10"
+            fontSize="13"
             fontFamily="Figtree"
-            className="fill-neutral-600"
+            className="fill-neutral-700"
           >
             {text}
           </text>
@@ -155,9 +146,9 @@ const DayPlateBoard: React.FC<DayPlateBoardProps> = ({
           x={CENTER}
           y="184"
           textAnchor="middle"
-          fontSize="12.5"
+          fontSize="14"
           fontFamily="Figtree"
-          className="fill-neutral-600 tabular-nums"
+          className="fill-neutral-700 tabular-nums"
         >
           of {goals.calories.toLocaleString('en-US')} kcal
         </text>
@@ -165,7 +156,7 @@ const DayPlateBoard: React.FC<DayPlateBoardProps> = ({
           x={CENTER}
           y="205"
           textAnchor="middle"
-          fontSize="11"
+          fontSize="13"
           fontFamily="Figtree"
           fontWeight="600"
           fill="var(--color-accent-700)"
@@ -189,38 +180,29 @@ const DayPlateBoard: React.FC<DayPlateBoardProps> = ({
                   fill: 'var(--color-accent-2-200)',
                   stroke: 'var(--color-accent-2-500)',
                   value: 'var(--color-accent-2-900)',
-                  label: 'var(--color-accent-2-800)',
                 }
               : {
                   fill: 'var(--color-accent-200)',
                   stroke: 'var(--color-accent-500)',
                   value: 'var(--color-accent-900)',
-                  label: 'var(--color-accent-800)',
                 };
           return (
             <g key={entry.id}>
               <circle cx={pos.x} cy={pos.y} r={r} fill={palette.fill} stroke={palette.stroke} strokeWidth="2.5" />
+              {/* Only the figure goes in the bubble. The meal name used to be
+                  set at 8.5px to fit, which is not a size anything readable
+                  happens at — it now lives in the list below the plate. */}
               <text
                 x={pos.x}
-                y={pos.y - 3}
+                y={pos.y + 4}
                 textAnchor="middle"
-                fontSize="10.5"
+                fontSize="13"
                 fontWeight="700"
                 fontFamily="Figtree"
                 fill={palette.value}
                 className="tabular-nums"
               >
                 {Math.round(entry.calories)}
-              </text>
-              <text
-                x={pos.x}
-                y={pos.y + 10}
-                textAnchor="middle"
-                fontSize="8.5"
-                fontFamily="Figtree"
-                fill={palette.label}
-              >
-                {bubbleLabel(entry.name)}
               </text>
             </g>
           );
@@ -232,7 +214,7 @@ const DayPlateBoard: React.FC<DayPlateBoardProps> = ({
           x={nowPos.x}
           y={nowPos.y - 14}
           textAnchor="middle"
-          fontSize="9.5"
+          fontSize="12"
           fontWeight="600"
           fontFamily="Figtree"
           fill="var(--color-accent-700)"
@@ -246,7 +228,7 @@ const DayPlateBoard: React.FC<DayPlateBoardProps> = ({
         {macros.map(({ label, value, goal, kickerClass, barColor }) => {
           const pct = goal > 0 ? Math.min(100, (value / goal) * 100) : 0;
           return (
-            <div key={label} className="flex-1 rounded-[20px] bg-surface px-3.5 py-3 shadow-sm">
+            <div key={label} className="panel flex-1 px-3.5 py-3">
               <div className={`kicker ${kickerClass}`}>{label}</div>
               <div className="my-1 font-display text-[19px] text-ink tabular-nums">{Math.round(value)} g</div>
               <div className="h-1.5 rounded-full bg-neutral-200">
@@ -259,6 +241,29 @@ const DayPlateBoard: React.FC<DayPlateBoardProps> = ({
           );
         })}
       </div>
+
+      {/* What is actually on the plate, at a size you can read. */}
+      {entries.length > 0 && (
+        <div className="mt-4">
+          <h2 className="kicker text-accent-700">On the plate</h2>
+          <ul className="mt-1 divide-y divide-divider">
+            {entries
+              .slice()
+              .reverse()
+              .map((entry) => (
+                <li key={entry.id} className="flex items-baseline gap-3 py-2.5">
+                  <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">{entry.name}</span>
+                  <span className="flex-none text-[13px] text-neutral-600 tabular-nums">
+                    {new Date(entry.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                  <span className="w-[76px] flex-none text-right text-[15px] font-semibold text-ink tabular-nums">
+                    {Math.round(entry.calories).toLocaleString('en-US')} kcal
+                  </span>
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };

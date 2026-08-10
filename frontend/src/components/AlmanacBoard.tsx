@@ -66,7 +66,7 @@ const AlmanacBoard: React.FC<AlmanacBoardProps> = ({
   const lastPoint = points[points.length - 1];
 
   return (
-    <div className="max-w-[540px]" onMouseEnter={onHoverStart} onMouseLeave={onHoverEnd}>
+    <div className="mx-auto w-full max-w-[540px]" onMouseEnter={onHoverStart} onMouseLeave={onHoverEnd}>
       <div className="flex items-baseline gap-2.5 pt-1">
         <span className="font-display text-[84px] leading-[0.95] tracking-[-0.02em] text-ink tabular-nums md:text-[104px]">
           {calories.toLocaleString('en-US')}
@@ -107,7 +107,7 @@ const AlmanacBoard: React.FC<AlmanacBoardProps> = ({
           return (
             <div
               key={label}
-              className={`flex items-center gap-3 border-t-2 border-dotted border-neutral-400 py-3 ${
+              className={`flex items-center gap-3 border-t-2 border-dotted border-neutral-500 py-3 ${
                 i === macros.length - 1 ? 'border-b-2' : ''
               }`}
             >
@@ -118,9 +118,9 @@ const AlmanacBoard: React.FC<AlmanacBoardProps> = ({
                   style={{ width: `${pct}%`, background: barColor, transition: 'width 1s ease-in-out' }}
                 />
               </div>
-              <span className="w-[86px] text-right font-display text-[15px] text-ink tabular-nums">
+              <span className="w-[86px] text-right text-[15px] font-semibold text-ink tabular-nums">
                 {Math.round(value)}{' '}
-                <span className="font-sans text-[11px] text-neutral-600">/ {goal.toLocaleString('en-US')} g</span>
+                <span className="font-sans text-[13px] text-neutral-600">/ {goal.toLocaleString('en-US')} g</span>
               </span>
             </div>
           );
@@ -148,14 +148,14 @@ const AlmanacBoard: React.FC<AlmanacBoardProps> = ({
             <polyline
               points={points.map(({ x, y }) => `${x},${y}`).join(' ')}
               fill="none"
-              stroke="var(--color-accent-600)"
+              stroke="var(--color-accent-700)"
               strokeWidth="3"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <circle cx={lastPoint.x} cy={lastPoint.y} r="4.5" fill="var(--color-accent-600)" />
+            <circle cx={lastPoint.x} cy={lastPoint.y} r="4.5" fill="var(--color-accent-700)" />
           </svg>
-          <div className="text-[12.5px] leading-normal text-neutral-700">
+          <div className="text-[13px] leading-normal text-neutral-700">
             Averaging <strong className="tabular-nums">{DEMO_ACCOUNT_STATS.avgCalories.toLocaleString('en-US')} kcal</strong>.{' '}
             {DEMO_ACCOUNT_STATS.currentStreak} straight days inside the goal — the best run this month.
           </div>

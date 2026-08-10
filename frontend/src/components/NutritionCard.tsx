@@ -16,8 +16,9 @@ interface NutritionCardProps {
 const RADIUS = 30;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-// Organic ring gauge card (design 1a): a round progress dial with the value
-// and goal beside it.
+// Organic ring gauge (design 1a): a round progress dial with the value and
+// goal beside it. Macros support the calorie headline rather than competing
+// with it, so this renders as an open panel, not an elevated card.
 const NutritionCard: React.FC<NutritionCardProps> = ({
   label,
   value,
@@ -32,7 +33,7 @@ const NutritionCard: React.FC<NutritionCardProps> = ({
 
   return (
     <div
-      className="flex items-center gap-4 rounded-card bg-surface p-5 md:gap-5 md:px-6"
+      className="panel flex items-center gap-4 p-5 md:gap-5 md:px-6"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
@@ -66,7 +67,7 @@ const NutritionCard: React.FC<NutritionCardProps> = ({
         <div className="mt-0.5 font-display text-2xl text-ink tabular-nums">
           {Math.round(value)} {unit}
         </div>
-        <div className="text-xs text-neutral-600 tabular-nums">
+        <div className="text-[13px] text-neutral-600 tabular-nums">
           of {goal.toLocaleString("en-US")} {unit}
         </div>
       </div>
