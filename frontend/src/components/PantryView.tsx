@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Droplets, Leaf, LineChart, Loader2, Plus, Rows3, Trash2, Trees, Utensils } from 'lucide-react';
+import { Droplets, LineChart, Loader2, Plus, Rows3, Trash2, Trees, Utensils } from 'lucide-react';
 import PlannedAction from './PlannedAction';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { EAT_SOON_DAYS, LarderItem, NewLarderItem, WasteEvent } from '../types/pantry';
@@ -76,6 +76,48 @@ const plainDaysLeft = (daysLeft: number) => {
   if (daysLeft === 1) return '1 day left';
   if (daysLeft >= TIMELINE_MAX_DAYS) return `over ${TIMELINE_MAX_DAYS} days left`;
   return `${daysLeft} days left`;
+};
+
+/** Foods named individually before the rest are folded into one row. */
+const NAMED_DRIVERS = 4;
+/** Rank as tone: the heaviest driver is solid, the tail fades. */
+const DRIVER_OPACITY = [1, 0.68, 0.46, 0.3, 0.2];
+
+/**
+ * Waste grouped by food and ranked by CO₂e rather than by mass, because the two
+ * are not the same thing: 40 g of beef outweighs half a kilo of vegetables. The
+ * category factors already encode that; until now nothing in the UI showed it.
+ */
+const impactDrivers = (events: WasteEvent[], totalCO2e: number) => {
+  if (totalCO2e <= 0) return [];
+  const byFood = new Map<string, { name: string; kgCO2e: number; quantity: number }>();
+  events.forEach((event) => {
+    const key = event.foodName.trim().toLowerCase();
+    const existing = byFood.get(key);
+    if (existing) {
+      existing.kgCO2e += event.impactKgCO2e;
+      existing.quantity += event.quantity;
+      return;
+    }
+    byFood.set(key, {
+      name: event.foodName,
+      kgCO2e: event.impactKgCO2e,
+      quantity: event.quantity,
+    });
+  });
+  const ranked = [...byFood.values()].sort((a, b) => b.kgCO2e - a.kgCO2e);
+  const tail = ranked.slice(NAMED_DRIVERS);
+  const drivers = tail.length
+    ? [
+        ...ranked.slice(0, NAMED_DRIVERS),
+        {
+          name: `${tail.length} more foods`,
+          kgCO2e: tail.reduce((total, driver) => total + driver.kgCO2e, 0),
+          quantity: tail.reduce((total, driver) => total + driver.quantity, 0),
+        },
+      ]
+    : ranked;
+  return drivers.map((driver) => ({ ...driver, sharePct: (driver.kgCO2e / totalCO2e) * 100 }));
 };
 
 const LarderRow: React.FC<{
@@ -297,36 +339,13 @@ const PantryView: React.FC<PantryViewProps> = ({
   const latestWasteAt = wasteEvents.reduce((latest, event) => Math.max(latest, event.wastedAt), 0);
   const zeroWasteDays = latestWasteAt ? Math.max(0, Math.floor((Date.now() - latestWasteAt) / 86_400_000)) : null;
 
-  const impact = [
-    {
-      key: 'waste',
-      figure: `${totalWaste.toLocaleString('en-US', { maximumFractionDigits: 1 })} g`,
-      caption: 'food waste recorded',
-      visual: (
-        <div className="grid h-11 w-11 flex-none place-items-center rounded-full bg-neutral-200">
-          <Trash2 size={21} strokeWidth={2.75} className="text-neutral-700" aria-hidden="true" />
-        </div>
-      ),
-    },
-    {
-      key: 'co2',
-      figure: `${totalCO2e.toLocaleString('en-US', { maximumFractionDigits: 2 })} kg`,
-      caption: 'estimated CO₂e from waste',
-      visual: (
-        <div className="grid h-11 w-11 flex-none place-items-center rounded-full bg-accent-200">
-          <Leaf size={21} strokeWidth={2.75} className="text-accent-800" aria-hidden="true" />
-        </div>
-      ),
-    },
+  const drivers = impactDrivers(wasteEvents, totalCO2e);
+  const supportingImpact = [
     {
       key: 'water',
       figure: `${totalVirtualWater.toLocaleString('en-US', { maximumFractionDigits: 0 })} L`,
       caption: 'estimated virtual water',
-      visual: (
-        <div className="grid h-11 w-11 flex-none place-items-center rounded-full bg-accent-2-200">
-          <Droplets size={21} strokeWidth={2.75} className="text-accent-2-800" aria-hidden="true" />
-        </div>
-      ),
+      icon: <Droplets size={19} strokeWidth={2.5} aria-hidden="true" />,
     },
     {
       key: 'trees',
@@ -335,11 +354,7 @@ const PantryView: React.FC<PantryViewProps> = ({
         maximumFractionDigits: 3,
       }),
       caption: 'urban tree-year equivalents',
-      visual: (
-        <div className="grid h-11 w-11 flex-none place-items-center rounded-full bg-accent-2-200">
-          <Trees size={21} strokeWidth={2.75} className="text-accent-2-800" aria-hidden="true" />
-        </div>
-      ),
+      icon: <Trees size={19} strokeWidth={2.5} aria-hidden="true" />,
     },
   ];
 
@@ -539,6 +554,95 @@ const PantryView: React.FC<PantryViewProps> = ({
         </form>
       )}
 
+      {/* The footprint of what was thrown out. This is the argument the larder
+          screen exists to make, so it is the loudest surface on the page: an
+          inverted sage band with no twin elsewhere in the app, above the list
+          rather than under it. Both themes flip the accent-2 ramp, so
+          bg/accent-2-900 stays a high-contrast pair in each. */}
+      <section
+        className="rounded-card bg-accent-2-900 px-6 py-6 text-bg shadow-md md:px-8 md:py-7"
+        aria-label="Waste impact totals"
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 className="kicker text-bg/80">What the waste cost</h2>
+          <p className="text-xs text-bg/70">Estimated from published category factors</p>
+        </div>
+
+        <div className="mt-5 grid gap-7 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-12">
+          <div>
+            <p className="font-display text-[46px] leading-none tabular-nums sm:text-[54px] md:text-[64px]">
+              {totalCO2e.toLocaleString('en-US', { maximumFractionDigits: 2 })} kg
+            </p>
+            <p className="mt-2.5 text-[15px] font-semibold">estimated CO₂e from waste</p>
+            <p className="mt-1 text-[13px] text-bg/75 tabular-nums">
+              <span className="font-semibold text-bg">
+                {totalWaste.toLocaleString('en-US', { maximumFractionDigits: 1 })} g
+              </span>{' '}
+              thrown out
+            </p>
+          </div>
+
+          <div className="flex flex-col justify-center">
+            {drivers.length > 0 ? (
+              <>
+                <p className="text-[13px] font-semibold text-bg/80">Where it came from</p>
+                {/* Rank, not hue: tinting one colour keeps the segments legible
+                    in both themes, and the list below carries the same figures
+                    as text. */}
+                <div className="mt-2.5 flex h-3.5 overflow-hidden rounded-full bg-bg/15" aria-hidden="true">
+                  {drivers.map((driver, index) => (
+                    <div
+                      key={driver.name}
+                      className="h-full bg-bg transition-[width] duration-700"
+                      style={{ width: `${driver.sharePct}%`, opacity: DRIVER_OPACITY[index] }}
+                    />
+                  ))}
+                </div>
+                <ul className="mt-3 flex flex-col gap-1.5">
+                  {drivers.map((driver, index) => (
+                    <li key={driver.name} className="flex items-center gap-2.5 text-[13px]">
+                      <span
+                        className="h-2 w-2 flex-none rounded-full bg-bg"
+                        style={{ opacity: DRIVER_OPACITY[index] }}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 flex-1 truncate">{driver.name}</span>
+                      <span className="flex-none text-bg/75 tabular-nums">
+                        {driver.quantity.toLocaleString('en-US', { maximumFractionDigits: 0 })} g ·{' '}
+                        {Math.round(driver.sharePct)}%
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="max-w-[42ch] text-[15px] leading-relaxed text-bg/80">
+                {/* Saved events can carry no footprint — the mapper defaults a
+                    missing estimate to zero — so the empty copy has to answer
+                    for what was actually logged. */}
+                {wasteEvents.length === 0
+                  ? 'Nothing thrown out yet. When you log a discard, this shows what it cost and which food carried most of it.'
+                  : 'No footprint estimate came back for what you logged, so there is nothing to break down yet.'}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 gap-4 border-t border-bg/20 pt-5 sm:grid-cols-2">
+          {supportingImpact.map(({ key, figure, caption, icon }) => (
+            <div key={key} className="flex items-center gap-3.5">
+              <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-bg/15">
+                {icon}
+              </span>
+              <span className="min-w-0">
+                <span className="block font-display text-[22px] leading-tight tabular-nums">{figure}</span>
+                <span className="block text-[13px] text-bg/75">{caption}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[2.1fr_1fr]">
         {/* The larder itself — primary content, so it takes the elevated card. */}
         <div className="card p-6 md:px-7" onMouseEnter={onHoverStart} onMouseLeave={onHoverEnd}>
@@ -680,19 +784,6 @@ const PantryView: React.FC<PantryViewProps> = ({
             />
           </div>
         </div>}
-      </section>
-
-      {/* Impact row — supporting figures, so open panels rather than cards. */}
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Waste impact totals">
-        {impact.map(({ key, figure, caption, visual }) => (
-          <div key={key} className="panel flex items-center gap-4 px-5 py-4">
-            {visual}
-            <div>
-              <div className="font-display text-[22px] text-ink tabular-nums">{figure}</div>
-              <div className="text-[13px] text-neutral-700">{caption}</div>
-            </div>
-          </div>
-        ))}
       </section>
 
       {wasteEvents.length > 0 && (
