@@ -78,6 +78,14 @@ const plainDaysLeft = (daysLeft: number) => {
   return `${daysLeft} days left`;
 };
 
+/**
+ * One drifting wave crest, drawn 120 units wide across an 80-unit viewBox so
+ * there is always surplus to slide in from the right. The shape repeats every
+ * 40 units, which is exactly what `water-drift` translates, so the loop has no
+ * seam.
+ */
+const WAVE_PATH = 'M0 8 q10 -4 20 0 t20 0 t20 0 t20 0 t20 0 t20 0 V24 H0 Z';
+
 /** Foods named individually before the rest are folded into one row. */
 const NAMED_DRIVERS = 4;
 /** Rank as tone: the heaviest driver is solid, the tail fades. */
@@ -345,7 +353,32 @@ const PantryView: React.FC<PantryViewProps> = ({
       key: 'water',
       figure: `${totalVirtualWater.toLocaleString('en-US', { maximumFractionDigits: 0 })} L`,
       caption: 'estimated virtual water',
-      icon: <Droplets size={19} strokeWidth={2.5} aria-hidden="true" />,
+      badge: (
+        <span className="relative grid h-11 w-11 flex-none place-items-center overflow-hidden rounded-full band-fill">
+          {/* Ambient only: the level is a constant, not a reading of the litres
+              beside it. Nothing here is a second way to say the number. */}
+          <svg
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-[58%] w-full"
+            viewBox="0 0 80 24"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            {/* Painted with SVG attributes rather than `fill-bg/40`: Tailwind
+                cannot put an opacity modifier on a bare var() colour, so that
+                class emits no rule and the path falls back to black. */}
+            <path className="water-wave" d={WAVE_PATH} fill="var(--color-bg)" opacity="0.4" />
+            <g transform="translate(-13 3.5)">
+              <path
+                className="water-wave water-wave-slow"
+                d={WAVE_PATH}
+                fill="var(--color-bg)"
+                opacity="0.25"
+              />
+            </g>
+          </svg>
+          <Droplets size={19} strokeWidth={2.5} className="relative" aria-hidden="true" />
+        </span>
+      ),
     },
     {
       key: 'trees',
@@ -354,7 +387,11 @@ const PantryView: React.FC<PantryViewProps> = ({
         maximumFractionDigits: 3,
       }),
       caption: 'urban tree-year equivalents',
-      icon: <Trees size={19} strokeWidth={2.5} aria-hidden="true" />,
+      badge: (
+        <span className="grid h-11 w-11 flex-none place-items-center rounded-full band-fill">
+          <Trees size={19} strokeWidth={2.5} aria-hidden="true" />
+        </span>
+      ),
     },
   ];
 
@@ -564,8 +601,8 @@ const PantryView: React.FC<PantryViewProps> = ({
         aria-label="Waste impact totals"
       >
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h2 className="kicker text-bg/80">What the waste cost</h2>
-          <p className="text-xs text-bg/70">Estimated from published category factors</p>
+          <h2 className="kicker band-muted">What the waste cost</h2>
+          <p className="text-xs band-muted">Estimated from published category factors</p>
         </div>
 
         <div className="mt-5 grid gap-7 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-12">
@@ -574,7 +611,7 @@ const PantryView: React.FC<PantryViewProps> = ({
               {totalCO2e.toLocaleString('en-US', { maximumFractionDigits: 2 })} kg
             </p>
             <p className="mt-2.5 text-[15px] font-semibold">estimated CO₂e from waste</p>
-            <p className="mt-1 text-[13px] text-bg/75 tabular-nums">
+            <p className="mt-1 text-[13px] band-muted tabular-nums">
               <span className="font-semibold text-bg">
                 {totalWaste.toLocaleString('en-US', { maximumFractionDigits: 1 })} g
               </span>{' '}
@@ -585,11 +622,14 @@ const PantryView: React.FC<PantryViewProps> = ({
           <div className="flex flex-col justify-center">
             {drivers.length > 0 ? (
               <>
-                <p className="text-[13px] font-semibold text-bg/80">Where it came from</p>
+                <p className="text-[13px] font-semibold band-muted">Where it came from</p>
                 {/* Rank, not hue: tinting one colour keeps the segments legible
                     in both themes, and the list below carries the same figures
                     as text. */}
-                <div className="mt-2.5 flex h-3.5 overflow-hidden rounded-full bg-bg/15" aria-hidden="true">
+                <div
+                  className="impact-bar mt-2.5 flex h-3.5 overflow-hidden rounded-full band-fill"
+                  aria-hidden="true"
+                >
                   {drivers.map((driver, index) => (
                     <div
                       key={driver.name}
@@ -600,14 +640,19 @@ const PantryView: React.FC<PantryViewProps> = ({
                 </div>
                 <ul className="mt-3 flex flex-col gap-1.5">
                   {drivers.map((driver, index) => (
-                    <li key={driver.name} className="flex items-center gap-2.5 text-[13px]">
+                    <li
+                      key={driver.name}
+                      className="impact-row flex items-center gap-2.5 text-[13px]"
+                      // Rows land behind the wipe that reveals their segment.
+                      style={{ animationDelay: `${260 + index * 70}ms` }}
+                    >
                       <span
                         className="h-2 w-2 flex-none rounded-full bg-bg"
                         style={{ opacity: DRIVER_OPACITY[index] }}
                         aria-hidden="true"
                       />
                       <span className="min-w-0 flex-1 truncate">{driver.name}</span>
-                      <span className="flex-none text-bg/75 tabular-nums">
+                      <span className="flex-none band-muted tabular-nums">
                         {driver.quantity.toLocaleString('en-US', { maximumFractionDigits: 0 })} g ·{' '}
                         {Math.round(driver.sharePct)}%
                       </span>
@@ -616,7 +661,7 @@ const PantryView: React.FC<PantryViewProps> = ({
                 </ul>
               </>
             ) : (
-              <p className="max-w-[42ch] text-[15px] leading-relaxed text-bg/80">
+              <p className="max-w-[42ch] text-[15px] leading-relaxed band-muted">
                 {/* Saved events can carry no footprint — the mapper defaults a
                     missing estimate to zero — so the empty copy has to answer
                     for what was actually logged. */}
@@ -628,15 +673,13 @@ const PantryView: React.FC<PantryViewProps> = ({
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-4 border-t border-bg/20 pt-5 sm:grid-cols-2">
-          {supportingImpact.map(({ key, figure, caption, icon }) => (
+        <div className="mt-6 grid grid-cols-1 gap-4 border-t band-rule pt-5 sm:grid-cols-2">
+          {supportingImpact.map(({ key, figure, caption, badge }) => (
             <div key={key} className="flex items-center gap-3.5">
-              <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-bg/15">
-                {icon}
-              </span>
+              {badge}
               <span className="min-w-0">
                 <span className="block font-display text-[22px] leading-tight tabular-nums">{figure}</span>
-                <span className="block text-[13px] text-bg/75">{caption}</span>
+                <span className="block text-[13px] band-muted">{caption}</span>
               </span>
             </div>
           ))}

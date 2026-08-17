@@ -225,6 +225,22 @@
     filter: saturate(0.6) contrast(0.85) brightness(1.1) opacity(0.94);
   }
 
+  /* The waste-cost band paints in one colour at several strengths. Tailwind
+     cannot synthesise an alpha channel from a bare `var()` colour — the tokens
+     carry no `<alpha-value>` placeholder — so `text-bg/75` and friends emit no
+     rule at all and silently fall back to full strength, transparent, or the
+     default border grey. color-mix gets the same result without splitting
+     every token into channels. */
+  .band-muted {
+    color: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  }
+  .band-fill {
+    background-color: color-mix(in srgb, var(--color-bg) 15%, transparent);
+  }
+  .band-rule {
+    border-color: color-mix(in srgb, var(--color-bg) 22%, transparent);
+  }
+
   .field-label {
     @apply mb-1.5 block text-[13px] font-semibold text-neutral-700;
   }
@@ -258,8 +274,57 @@
     border-radius: 55% 45% 52% 48% / 46% 56% 44% 54%;
   }
 }
+/* Waste-cost band. The breakdown is ranked, so it arrives ranked: the bar
+   wipes left to right and the rows follow in the same order, which means the
+   heaviest driver is on screen first and holds it alone for a beat. */
+@keyframes impact-bar-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes impact-row-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Virtual water is the one figure on that card that is literally a liquid, so
+   its token holds some. Two layers drifting at different speeds read as depth;
+   the loop is seamless because the path repeats every 40 user units. */
+@keyframes water-drift {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-40px);
+  }
+}
+
+.impact-bar {
+  animation: impact-bar-wipe 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.impact-row {
+  animation: impact-row-rise 420ms ease-out both;
+}
+.water-wave {
+  animation: water-drift 5s linear infinite;
+}
+.water-wave-slow {
+  animation-duration: 8.5s;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .blob-anim {
+  .blob-anim,
+  .impact-bar,
+  .impact-row,
+  .water-wave {
     animation: none !important;
   }
 }
