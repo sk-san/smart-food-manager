@@ -313,18 +313,34 @@
 .impact-row {
   animation: impact-row-rise 420ms ease-out both;
 }
+/* The tree-year badge sways. Slower and shallower than the wave beside it, so
+   the two ambient loops read as one calm row rather than competing. */
+@keyframes tree-sway {
+  from {
+    transform: rotate(-5deg);
+  }
+  to {
+    transform: rotate(5deg);
+  }
+}
+
 .water-wave {
   animation: water-drift 5s linear infinite;
 }
 .water-wave-slow {
   animation-duration: 8.5s;
 }
+.tree-sway {
+  animation: tree-sway 4.6s ease-in-out infinite alternate;
+  transform-origin: 50% 85%;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .blob-anim,
   .impact-bar,
   .impact-row,
-  .water-wave {
+  .water-wave,
+  .tree-sway {
     animation: none !important;
   }
 }

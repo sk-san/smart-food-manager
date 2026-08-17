@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Droplets, LineChart, Loader2, Plus, Rows3, Trash2, Trees, Utensils } from 'lucide-react';
 import PlannedAction from './PlannedAction';
+import { useCountUp } from '../hooks/useCountUp';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { EAT_SOON_DAYS, LarderItem, NewLarderItem, WasteEvent } from '../types/pantry';
 
@@ -347,6 +348,10 @@ const PantryView: React.FC<PantryViewProps> = ({
   const latestWasteAt = wasteEvents.reduce((latest, event) => Math.max(latest, event.wastedAt), 0);
   const zeroWasteDays = latestWasteAt ? Math.max(0, Math.floor((Date.now() - latestWasteAt) / 86_400_000)) : null;
 
+  // The hero climbs to its total on arrival, and from the old total to the new
+  // one whenever waste is logged.
+  const countedCO2e = useCountUp(totalCO2e);
+
   const drivers = impactDrivers(wasteEvents, totalCO2e);
   const supportingImpact = [
     {
@@ -389,7 +394,7 @@ const PantryView: React.FC<PantryViewProps> = ({
       caption: 'urban tree-year equivalents',
       badge: (
         <span className="grid h-11 w-11 flex-none place-items-center rounded-full band-fill">
-          <Trees size={19} strokeWidth={2.5} aria-hidden="true" />
+          <Trees size={19} strokeWidth={2.5} className="tree-sway" aria-hidden="true" />
         </span>
       ),
     },
@@ -608,7 +613,7 @@ const PantryView: React.FC<PantryViewProps> = ({
         <div className="mt-5 grid gap-7 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-12">
           <div>
             <p className="font-display text-[46px] leading-none tabular-nums sm:text-[54px] md:text-[64px]">
-              {totalCO2e.toLocaleString('en-US', { maximumFractionDigits: 2 })} kg
+              {countedCO2e.toLocaleString('en-US', { maximumFractionDigits: 2 })} kg
             </p>
             <p className="mt-2.5 text-[15px] font-semibold">estimated CO₂e from waste</p>
             <p className="mt-1 text-[13px] band-muted tabular-nums">
