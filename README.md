@@ -79,6 +79,7 @@ from a user problem to the code that answers it.
 | Managing your health alone feels lonely | A draggable companion character ("Nutri") reacts to the day's logging — positioned as a **retention mechanism**, not decoration | [`CompanionCharacter.tsx`](frontend/src/components/CompanionCharacter.tsx) |
 | People return to the app on their own schedule | Expiry re-checks at **browser-local midnight and on resume**; the server applies the profile timezone when deciding what expired | [`App.tsx`](frontend/src/App.tsx), [`inventory_lifecycle.go`](backend/internal/handler/inventory_lifecycle.go) |
 | An app you can't keep open on your phone isn't a daily habit | Installable **PWA** with offline app shell, rear-camera capture, and EXIF-stripped, downscaled uploads | [`sw.js`](frontend/public/sw.js), [`imageProcessing.ts`](frontend/src/services/imageProcessing.ts) |
+| Signing up before knowing whether the app is worth it is its own churn point | **Continue as guest** — the AI flow works without an account, capped server-side at `GUEST_AI_DAILY_LIMIT` analyses per day per IP, since each one costs a real Gemini call and a client-side cap is trivially bypassed | [`aiquota.go`](backend/internal/middleware/aiquota.go), [`LoginView.tsx`](frontend/src/components/LoginView.tsx) |
 
 ## 5. Scope discipline: what this deliberately does not do
 
@@ -145,7 +146,8 @@ and prints the reason in plain text next to itself.
 | Rough range language ("tends to be low") | **Not built** | The dashboard still shows precise values against goals ([`NutritionCard.tsx`](frontend/src/components/NutritionCard.tsx)). The stated design calls for range-based phrasing — this is the largest open gap between spec and code |
 | Today's meal suggestions from near-expiry stock | **Not built** | "Eat soon" grouping exists; recipe suggestions are marked planned in the UI |
 | Reminders / push notifications | **Not built** | The service worker is offline-shell only; no Web Push. Companion nudges are in-app only |
-| Signup | **Not built** | Login only; users need a seeded row and bcrypt hash |
+| Guest trial without an account | **Built** | "Continue as guest" plus a server-enforced daily AI allowance ([`aiquota.go`](backend/internal/middleware/aiquota.go)) |
+| Signup / password recovery | **Not built** | Account creation needs a seeded row and bcrypt hash; guests can look around in the meantime |
 
 ## 8. How this would be measured
 
@@ -257,8 +259,12 @@ GEMINI_API_KEY=
 > `DB_HOST_PORT=5432`) in `.env` so the two agree.
 
 Other backend variables (all optional, with defaults): `PORT`, `JWT_EXPIRY_MINUTES`,
-`RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`, `ALLOWED_ORIGIN`, `SERVICE_NAME`, `SERVICE_VERSION`,
-`DEPLOYMENT_ENVIRONMENT`, `GEMINI_BASE_URL`, `GEMINI_MODEL`, `GEMINI_TIMEOUT_SECONDS`.
+`RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`, `ALLOWED_ORIGIN`, `GUEST_AI_DAILY_LIMIT`, `SERVICE_NAME`,
+`SERVICE_VERSION`, `DEPLOYMENT_ENVIRONMENT`, `GEMINI_BASE_URL`, `GEMINI_MODEL`,
+`GEMINI_TIMEOUT_SECONDS`.
+`GUEST_AI_DAILY_LIMIT` (default `3`) caps how many AI analyses a visitor without an account may
+run per UTC day, counted per client IP; `-1` removes the cap and `0` closes AI analysis to guests
+entirely. Signed-in callers are never capped.
 The frontend accepts `VITE_API_BASE_URL` (empty in dev — see the Vite proxy) and `VITE_APP_VERSION`.
 
 ## Quickstart
@@ -373,7 +379,8 @@ is reported as `502` by those handlers.
 | POST | `/api/v1/auth/login` | none | Verifies an active database user and issues a JWT |
 | GET | `/api/v1/nutrients` | none | Lists the active nutrient master |
 | POST | `/api/v1/telemetry/logs` | optional Bearer | Frontend telemetry sink; a token binds events to the user |
-| POST | `/api/v1/nutrition/analyze` | optional Bearer | AI food analysis from text or an image |
+| POST | `/api/v1/nutrition/analyze` | optional Bearer | AI food analysis from text or an image; guests get `GUEST_AI_DAILY_LIMIT` a day |
+| GET | `/api/v1/nutrition/quota` | optional Bearer | Remaining guest AI analyses; reading it spends none |
 | GET | `/api/v1/me` | Bearer | Returns the caller's claims |
 | GET/POST | `/api/v1/meals` | Bearer | List and create meals (`GET/PUT/DELETE /{mealID}`) |
 | GET/PUT/DELETE | `/api/v1/goals` | Bearer | Daily nutrition goals |

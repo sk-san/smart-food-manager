@@ -7,7 +7,7 @@
 // apiPost client — every call carries traceparent and emits api_request_*
 // telemetry. Calls fall back to local estimates when the configured AI
 // provider is unavailable, so the UI stays functional without an API key.
-import { apiPost } from "../api/client";
+import { ApiError, apiGet, apiPost } from "../api/client";
 import { logEvent } from "../telemetry/logger";
 import {
   DEFAULT_EXPIRY_DAYS,
@@ -18,7 +18,63 @@ import {
 } from "../types/nutrition";
 
 const ANALYZE_PATH = "/api/v1/nutrition/analyze";
+const QUOTA_PATH = "/api/v1/nutrition/quota";
 const COMPANION_PATH = "/api/v1/companion/message";
+
+// The backend caps AI analyses for callers without an account (the "continue
+// as guest" path) and answers 429 with this code once the day is spent. The
+// shared rate limiter also answers 429, so the code — not the status — is
+// what identifies an exhausted allowance.
+const GUEST_AI_LIMIT_CODE = "guest_ai_daily_limit";
+
+/** A guest's AI analysis allowance, as reported by the backend. */
+export interface AiQuota {
+  /** True for signed-in callers, who are not capped. */
+  unlimited: boolean;
+  limit: number;
+  used: number;
+  remaining: number;
+  /** When the allowance returns, ISO-8601. Absent when unlimited. */
+  resetAt?: string;
+}
+
+export class AiQuotaExceededError extends Error {
+  constructor(public readonly quota: AiQuota) {
+    super("AI analysis quota exhausted");
+    this.name = "AiQuotaExceededError";
+  }
+}
+
+const numberField = (source: Record<string, unknown>, key: string): number => {
+  const value = source[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+};
+
+const toQuota = (source: Record<string, unknown>): AiQuota => {
+  const limit = numberField(source, "limit");
+  return {
+    unlimited: source.unlimited === true,
+    limit,
+    used: numberField(source, "used"),
+    remaining: Math.max(0, typeof source.remaining === "number" ? source.remaining : limit),
+    resetAt: typeof source.resetAt === "string" ? source.resetAt : undefined,
+  };
+};
+
+// An unreachable quota endpoint must not block the scanner: the backend
+// enforces the cap either way, so the UI assumes no limit until told
+// otherwise and lets the analysis call be the source of truth.
+const UNKNOWN_QUOTA: AiQuota = { unlimited: true, limit: 0, used: 0, remaining: 0 };
+
+// getAiQuota reports how many AI analyses the caller has left today. Reading
+// it never spends one.
+export async function getAiQuota(): Promise<AiQuota> {
+  try {
+    return toQuota(await apiGet<Record<string, unknown>>(QUOTA_PATH));
+  } catch {
+    return UNKNOWN_QUOTA;
+  }
+}
 
 // A deterministic nutrition fallback for provider or network failures. Scanner
 // metadata is attached at call time so it follows the type the user selected.
@@ -149,6 +205,11 @@ export async function analyzeFoodInput(
         outcome: "failure",
         attrs: { "error.type": err instanceof Error ? err.name : "Error" },
       });
+    }
+    // A spent allowance is not a transient failure, so it never falls back to
+    // a local estimate: the caller has to be told the analysis did not run.
+    if (err instanceof ApiError && err.status === 429 && err.code === GUEST_AI_LIMIT_CODE) {
+      throw new AiQuotaExceededError(toQuota(err.body));
     }
     // A failed photo upload must stay a failed upload: presenting a generic
     // "Scanned food" estimate would imply the backend had seen the image.

@@ -24,6 +24,8 @@ const (
 	EventRequestCompleted = "request_completed"
 	EventRequestFailed    = "request_failed"
 
+	EventGuestAIQuotaExceeded = "guest_ai_quota_exceeded"
+
 	EventAuthLoginStarted    = "auth_login_started"
 	EventAuthLoginCompleted  = "auth_login_completed"
 	EventAuthLoginFailed     = "auth_login_failed"

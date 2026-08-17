@@ -14,14 +14,40 @@ const TOKEN_STORAGE_KEY = "auth_token";
 
 let authToken: string | null = localStorage.getItem(TOKEN_STORAGE_KEY);
 
+/** JSON error envelope the backend handlers return: {"error": "..."} plus,
+ *  for errors the UI has to tell apart, a stable machine-readable `code`. */
+export interface ApiErrorBody {
+  error?: string;
+  code?: string;
+  [key: string]: unknown;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly method: string,
     public readonly path: string,
     public readonly status: number,
+    /** Parsed error envelope; empty when the backend answered in plain text. */
+    public readonly body: ApiErrorBody = {},
   ) {
     super(`${method} ${path} failed: ${status}`);
     this.name = "ApiError";
+  }
+
+  get code(): string | undefined {
+    return typeof this.body.code === "string" ? this.body.code : undefined;
+  }
+}
+
+// Middleware errors (auth, rate limiting) are plain text, so only a JSON
+// content type is parsed and a malformed body is treated as absent.
+async function readErrorBody(res: Response): Promise<ApiErrorBody> {
+  if (!res.headers.get("Content-Type")?.includes("application/json")) return {};
+  try {
+    const parsed: unknown = await res.json();
+    return parsed && typeof parsed === "object" ? (parsed as ApiErrorBody) : {};
+  } catch {
+    return {};
   }
 }
 
@@ -102,6 +128,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
 
   if (!res.ok) {
+    const errorBody = await readErrorBody(res);
     logEvent({
       severity: "ERROR",
       message: `API request failed: ${action}`,
@@ -114,7 +141,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       durationMs: performance.now() - started,
       attrs: { ...httpAttrs, "http.response.status_code": res.status },
     });
-    throw new ApiError(method, path, res.status);
+    throw new ApiError(method, path, res.status, errorBody);
   }
 
   logEvent({

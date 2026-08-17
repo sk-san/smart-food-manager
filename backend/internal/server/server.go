@@ -38,6 +38,10 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 		Timeout: cfg.GeminiTimeout,
 	})
 
+	// Guests reach Gemini through the public analysis route, so the day's
+	// allowance is capped per client IP. A signed-in caller is exempt.
+	guestAI := middleware.NewGuestAIQuota(cfg.GuestAIDailyLimit)
+
 	health := handler.NewHealthHandler(pool)
 	auth := handler.NewAuthHandler(pool, cfg.JWTSecret, cfg.JWTExpiry)
 	nutrients := handler.NewNutrientHandler(pool, geminiClient)
@@ -63,9 +67,14 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 
 		// AddEntryModal food analysis (text or image) via Gemini. Public so
 		// the modal works pre-login; a token, when present, binds the call
-		// to the user.
-		r.With(middleware.OptionalAuthenticator(cfg.JWTSecret)).
+		// to the user and lifts the guest daily limit.
+		r.With(middleware.OptionalAuthenticator(cfg.JWTSecret), guestAI.Middleware).
 			Post("/nutrition/analyze", nutrition.Analyze)
+
+		// Remaining guest analyses, so the modal can show the allowance
+		// before one is spent. Reading it never consumes a run.
+		r.With(middleware.OptionalAuthenticator(cfg.JWTSecret)).
+			Get("/nutrition/quota", guestAI.Status)
 
 		// Authenticated endpoints.
 		r.Group(func(r chi.Router) {
@@ -132,6 +141,9 @@ func cors(origin string) func(http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Session-Id, traceparent")
+			// Without this the browser hides the quota headers from the
+			// frontend, which reads them to show a guest's remaining runs.
+			w.Header().Set("Access-Control-Expose-Headers", "X-AI-Quota-Limit, X-AI-Quota-Remaining, X-AI-Quota-Reset")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return

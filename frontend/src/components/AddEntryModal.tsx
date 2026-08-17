@@ -15,7 +15,12 @@ import {
   Type,
   X,
 } from "lucide-react";
-import { analyzeFoodInput } from "../services/nutritionService";
+import {
+  AiQuotaExceededError,
+  analyzeFoodInput,
+  getAiQuota,
+  type AiQuota,
+} from "../services/nutritionService";
 import { PhotoValidationError, prepareFoodPhoto, validateFoodPhoto } from "../services/imageProcessing";
 import {
   DEFAULT_EXPIRY_DAYS,
@@ -29,6 +34,10 @@ interface AddEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (items: ScannedFoodInput[]) => void | Promise<void>;
+  /** Guests get a small number of AI analyses a day, shown and enforced here
+   *  as well as on the backend, so the allowance is visible before it runs
+   *  out mid-scan. */
+  isGuest?: boolean;
 }
 
 type InputMode = "text" | "image";
@@ -156,6 +165,17 @@ const defaultStorage = (scanType: ScanType, category = "other"): FoodStorage => 
   return "fridge";
 };
 
+// When the allowance returns, in the reader's own clock. The backend resets
+// at UTC midnight, which lands at an ordinary local hour for most readers, so
+// the day it falls on is worth saying.
+const formatResetTime = (resetAt?: string): string => {
+  if (!resetAt) return "tomorrow";
+  const reset = new Date(resetAt);
+  if (Number.isNaN(reset.getTime())) return "tomorrow";
+  const time = reset.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return reset.toDateString() === new Date().toDateString() ? `at ${time}` : `tomorrow at ${time}`;
+};
+
 const emptyItem = (scanType: ScanType): EditableItem => ({
   name: "",
   calories: 0,
@@ -174,7 +194,7 @@ const emptyItem = (scanType: ScanType): EditableItem => ({
   storage: defaultStorage(scanType),
 });
 
-const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd }) => {
+const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd, isGuest = false }) => {
   const [mode, setMode] = useState<InputMode>(defaultMode);
   const [scanType, setScanType] = useState<ScanType>("food");
   const [inputText, setInputText] = useState("");
@@ -184,6 +204,7 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<EditableItem[] | null>(null);
+  const [quota, setQuota] = useState<AiQuota | null>(null);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -243,6 +264,20 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
     return () => URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 
+  // Read the guest allowance each time the modal opens rather than once at
+  // mount: it is spent across sessions and tabs, and it rolls over at a fixed
+  // hour. Signed-in users are not capped, so they never ask.
+  useEffect(() => {
+    if (!isOpen || !isGuest) return;
+    let cancelled = false;
+    getAiQuota().then((current) => {
+      if (!cancelled) setQuota(current);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, isGuest]);
+
   if (!isOpen) return null;
 
   const isAnalyzing = analysisPhase !== "idle";
@@ -273,6 +308,8 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
   const handleAnalyze = async () => {
     if (mode === "text" && !inputText.trim()) return;
     if (mode === "image" && !selectedFile) return;
+    // The backend rejects it anyway; not sending spares the round trip.
+    if (quota && !quota.unlimited && quota.remaining === 0) return;
 
     setAnalysisResult(null);
     setError(null);
@@ -289,6 +326,13 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
       }
 
       const result = await analyzeFoodInput(input, mode, scanType);
+      // The run is spent once the backend answers. A rejected or failed
+      // analysis is refunded there, so only a delivered result costs one.
+      setQuota((current) =>
+        current && !current.unlimited
+          ? { ...current, used: current.used + 1, remaining: Math.max(0, current.remaining - 1) }
+          : current,
+      );
       if (result.length === 0) {
         setError(
           mode === "image"
@@ -304,7 +348,13 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
         storage: defaultStorage(item.scanType, item.category),
       })));
     } catch (analysisError) {
-      if (analysisError instanceof PhotoValidationError) {
+      if (analysisError instanceof AiQuotaExceededError) {
+        setQuota(analysisError.quota);
+        setError(
+          `Today’s ${analysisError.quota.limit} guest AI scans are used up, so this ${scanType} wasn’t analyzed. ` +
+            `They come back ${formatResetTime(analysisError.quota.resetAt)} — or sign in to keep scanning now.`,
+        );
+      } else if (analysisError instanceof PhotoValidationError) {
         setError(analysisError.message);
       } else {
         setError(
@@ -431,6 +481,11 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
     uploading: `Nutri is checking your ${scanType}…`,
     analyzing: `Nutri is reading your ${scanType} description…`,
   };
+
+  // A capped allowance the UI knows about. An unlimited caller, or a quota
+  // the backend could not be asked for, leaves the scanner unchanged.
+  const cappedQuota = quota && !quota.unlimited ? quota : null;
+  const isOutOfScans = cappedQuota?.remaining === 0;
 
   const hasInvalidReviewItem = analysisResult?.some(
     (item) => !item.name.trim() || item.quantityGrams <= 0 || !item.expiryDate,
@@ -658,25 +713,47 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd })
                 </p>
               )}
 
-              {(mode === "text" || selectedFile) && (
-                <button
-                  type="button"
-                  disabled={isAnalyzing || (mode === "text" ? !inputText.trim() : !selectedFile)}
-                  onClick={handleAnalyze}
-                  className="btn btn-primary sticky bottom-0 w-full py-3.5 text-[15px] shadow-md"
-                >
-                  {isAnalyzing ? (
-                    <>
-                      <Loader2 className="animate-spin" size={19} aria-hidden="true" />
-                      {phaseCopy[analysisPhase]}
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles size={19} aria-hidden="true" />
-                      {mode === "image" ? "Use this photo" : "Analyze description"}
-                    </>
+              {/* A spent allowance takes the action's place rather than
+                  leaving a dead button behind: it holds the same sticky slot
+                  at the foot of the scanner, so it stays in view. */}
+              {isOutOfScans ? (
+                <div className="sticky bottom-0 flex items-start gap-2.5 rounded-2xl bg-neutral-200 px-3.5 py-3 text-sm leading-relaxed text-ink shadow-md">
+                  <Sparkles size={17} className="mt-0.5 shrink-0 text-neutral-700" aria-hidden="true" />
+                  <p>
+                    <span className="font-semibold">Today’s {cappedQuota?.limit} guest AI scans are used up.</span>{" "}
+                    They come back {formatResetTime(cappedQuota?.resetAt)}. Sign in to keep scanning now.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {cappedQuota && (
+                    <p className="text-center text-[13px] text-neutral-700">
+                      Guest mode · {cappedQuota.remaining} of {cappedQuota.limit} AI{" "}
+                      {cappedQuota.limit === 1 ? "scan" : "scans"} left today
+                    </p>
                   )}
-                </button>
+
+                  {(mode === "text" || selectedFile) && (
+                    <button
+                      type="button"
+                      disabled={isAnalyzing || (mode === "text" ? !inputText.trim() : !selectedFile)}
+                      onClick={handleAnalyze}
+                      className="btn btn-primary sticky bottom-0 w-full py-3.5 text-[15px] shadow-md"
+                    >
+                      {isAnalyzing ? (
+                        <>
+                          <Loader2 className="animate-spin" size={19} aria-hidden="true" />
+                          {phaseCopy[analysisPhase]}
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={19} aria-hidden="true" />
+                          {mode === "image" ? "Use this photo" : "Analyze description"}
+                        </>
+                      )}
+                    </button>
+                  )}
+                </>
               )}
 
               <div className="flex items-start gap-2.5 rounded-2xl border border-divider px-3.5 py-3 text-xs leading-relaxed text-neutral-600">
