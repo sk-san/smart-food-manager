@@ -780,7 +780,7 @@ test.describe("scanned pantry lifecycle", () => {
   test("guest expiry removes provisional nutrition and moves remaining stock to waste after midnight", async ({ page }) => {
     await navTab(page, "Account").click();
     await content(page).getByRole("button", { name: "Log out" }).click();
-    await page.getByRole("button", { name: "Developer" }).click();
+    await page.getByRole("button", { name: "Continue as guest" }).click();
 
     await page.route(ANALYZE_PATH, (route) =>
       route.fulfill({
@@ -1004,23 +1004,17 @@ test.describe("account", () => {
     await expect(page.getByRole("heading", { name: /at the table/ })).toBeVisible();
   });
 
-  test("guest bypass buttons enter the app with the chosen role", async ({ page }) => {
+  test("the guest bypass button enters the app as the guest identity", async ({ page }) => {
     await navTab(page, "Account").click();
     await content(page).getByRole("button", { name: "Log out" }).click();
 
-    // Developer bypass: straight to the dashboard, identity reflects the role.
-    await page.getByRole("button", { name: "Developer" }).click();
+    // Guest bypass: straight to the dashboard, identity reflects the bypass.
+    await page.getByRole("button", { name: "Continue as guest" }).click();
     await expect(page.getByRole("heading", { name: /at the table/ })).toBeVisible();
     await navTab(page, "Account").click();
-    await expect(page.getByText("dev@nutri.local")).toBeVisible();
+    await expect(page.getByText("guest@nutri.local")).toBeVisible();
 
-    // Alpha bypass works the same way.
-    await content(page).getByRole("button", { name: "Log out" }).click();
-    await page.getByRole("button", { name: "Alpha tester" }).click();
-    await navTab(page, "Account").click();
-    await expect(page.getByText("alpha@nutri.local")).toBeVisible();
-
-    // A normal sign-in clears the guest role and returns to the demo account.
+    // A normal sign-in clears the guest session and returns to the demo account.
     await content(page).getByRole("button", { name: "Log out" }).click();
     await signIn(page);
     await navTab(page, "Account").click();

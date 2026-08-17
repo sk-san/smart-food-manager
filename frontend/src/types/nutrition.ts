@@ -77,12 +77,9 @@ export class PartialScanSaveError extends Error {
   }
 }
 
-// Guest roles offered by the sign-in screen's auth bypass (testing only).
-export type GuestRole = "developer" | "alpha";
-
 // Presentational identity for the signed-in user. The auth endpoint currently
-// returns only a token, so the default account chrome remains static; guest
-// roles swap it out so the testing bypass is visible.
+// returns only a token, so the default account chrome remains static; the guest
+// bypass swaps it out so the testing bypass is visible.
 export interface UserProfile {
   name: string;
   email: string;
@@ -97,19 +94,12 @@ export const DEFAULT_PROFILE: UserProfile = {
   tag: "since March",
 };
 
-export const GUEST_PROFILES: Record<GuestRole, UserProfile> = {
-  developer: {
-    name: "Developer",
-    email: "dev@nutri.local",
-    initials: "DV",
-    tag: "internal build",
-  },
-  alpha: {
-    name: "Alpha Tester",
-    email: "alpha@nutri.local",
-    initials: "AT",
-    tag: "alpha cohort",
-  },
+// Identity used by the sign-in screen's auth bypass (testing only).
+export const GUEST_PROFILE: UserProfile = {
+  name: "Guest",
+  email: "guest@nutri.local",
+  initials: "GU",
+  tag: "guest access",
 };
 
 // Demo account aggregates shown on the account page and the almanac board —
