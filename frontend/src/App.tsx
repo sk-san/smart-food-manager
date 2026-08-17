@@ -10,10 +10,9 @@ import SettingsView from "./components/SettingsView";
 import {
   FoodEntry,
   DailyGoal,
-  GuestRole,
   SUGGESTED_GOALS,
   DEFAULT_PROFILE,
-  GUEST_PROFILES,
+  GUEST_PROFILE,
   NutritionData,
   PartialScanSaveError,
   ScannedFoodInput,
@@ -166,13 +165,13 @@ function App() {
   const [authState, setAuthState] = useState<AuthState>(() => getToken() ? "checking" : "unauthenticated");
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const [guestRole, setGuestRole] = useState<GuestRole | null>(null);
+  const [isGuest, setIsGuest] = useState(false);
 
   const initialCalendarDay = useRef(localDateKey());
   const [calendarDay, setCalendarDay] = useState(initialCalendarDay.current);
   const [savedDataRefresh, setSavedDataRefresh] = useState(0);
 
-  const profile = guestRole ? GUEST_PROFILES[guestRole] : DEFAULT_PROFILE;
+  const profile = isGuest ? GUEST_PROFILE : DEFAULT_PROFILE;
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
 
   // Where the reader had each tab scrolled to. Without this, switching tabs
@@ -246,7 +245,7 @@ function App() {
     setToken(null);
     setAuthState("unauthenticated");
     setAuthError(null);
-    setGuestRole(null);
+    setIsGuest(false);
     setEntries(INITIAL_ENTRIES);
     setGoals(SUGGESTED_GOALS);
     setPantryItems([]);
@@ -305,7 +304,7 @@ function App() {
   }, [authState]);
 
   useEffect(() => {
-    if (authState !== "authenticated" || guestRole || !getToken()) return;
+    if (authState !== "authenticated" || isGuest || !getToken()) return;
 
     let cancelled = false;
     const requestId = ++savedDataRequest.current;
@@ -352,10 +351,10 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [authState, guestRole, calendarDay, savedDataRefresh]);
+  }, [authState, isGuest, calendarDay, savedDataRefresh]);
 
   useEffect(() => {
-    if (!guestRole) return;
+    if (!isGuest) return;
 
     const expired: LarderItem[] = [];
     let pantryChanged = false;
@@ -412,7 +411,7 @@ function App() {
     if (expiryWaste.length > 0) {
       setWasteEvents((current) => [...expiryWaste, ...current]);
     }
-  }, [calendarDay, guestRole, pantryItems]);
+  }, [calendarDay, isGuest, pantryItems]);
 
   const handleTabChange = (next: Tab) => {
     if (next === activeTab) return;
@@ -452,7 +451,7 @@ function App() {
   }, [todayEntries]);
 
   const handleAddEntries = async (newItems: ScannedFoodInput[]) => {
-    if (guestRole || !getToken()) {
+    if (isGuest || !getToken()) {
       const timestamp = Date.now();
       const pantry: LarderItem[] = [];
       const provisionalMeals: FoodEntry[] = [];
@@ -564,7 +563,7 @@ function App() {
   };
 
   const handleUpdateGoals = async (next: DailyGoal) => {
-    if (guestRole || !getToken()) {
+    if (isGuest || !getToken()) {
       setGoals(next);
       return;
     }
@@ -574,7 +573,7 @@ function App() {
   };
 
   const handleAddPantryItem = async (input: NewLarderItem) => {
-    if (guestRole || !getToken()) {
+    if (isGuest || !getToken()) {
       const item: LarderItem = {
         id: crypto.randomUUID(),
         name: input.name,
@@ -608,7 +607,7 @@ function App() {
   };
 
   const handleWasteItem = async (item: LarderItem, quantity: number, reason: string) => {
-    if (guestRole || !getToken()) {
+    if (isGuest || !getToken()) {
       const impact = guestImpact(item, quantity);
       const wasted = (item.quantityWasted ?? 0) + quantity;
       if (item.provisionalMealId && item.nutritionPer100g) {
@@ -665,7 +664,7 @@ function App() {
     discardRemaining: boolean,
     wasteReason: string,
   ) => {
-    if (guestRole || !getToken()) {
+    if (isGuest || !getToken()) {
       const purchased = item.quantityPurchased ?? 0;
       const consumedBefore = item.quantityConsumed ?? 0;
       const wastedBefore = item.quantityWasted ?? 0;
@@ -769,11 +768,11 @@ function App() {
 
   const handleSignIn = () => enterApp("login");
 
-  const handleGuestLogin = (role: GuestRole) => {
+  const handleGuestLogin = () => {
     locallyExpiredItemIds.current.clear();
-    setGuestRole(role);
+    setIsGuest(true);
     setPantryItems(SEED_LARDER);
-    enterApp(`login:guest-${role}`);
+    enterApp("login:guest");
   };
 
   const navItems: { tab: Tab; icon: typeof LayoutGrid }[] = [
