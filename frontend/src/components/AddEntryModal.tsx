@@ -22,6 +22,7 @@ import {
   type AiQuota,
 } from "../services/nutritionService";
 import { PhotoValidationError, prepareFoodPhoto, validateFoodPhoto } from "../services/imageProcessing";
+import { loadSampleMealPhoto, sampleMealUrl } from "../services/sampleMealPhoto";
 import {
   DEFAULT_EXPIRY_DAYS,
   type FoodStorage,
@@ -201,6 +202,7 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd, i
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [analysisPhase, setAnalysisPhase] = useState<AnalysisPhase>("idle");
+  const [isLoadingSample, setIsLoadingSample] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<EditableItem[] | null>(null);
@@ -217,6 +219,7 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd, i
     setAnalysisResult(null);
     setError(null);
     setAnalysisPhase("idle");
+    setIsLoadingSample(false);
     setIsSaving(false);
     setMode(defaultMode());
     setScanType("food");
@@ -302,6 +305,26 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd, i
           ? selectionError.message
           : "That photo could not be opened. Choose another one."
       );
+    }
+  };
+
+  // The bundled sample lands in the preview like a camera or gallery pick
+  // rather than analyzing straight away: the guest still presses "Use this
+  // photo", so an allowance they only have a few of is never spent by a tap
+  // meant to look at the sample.
+  const handleUseSample = async () => {
+    setIsLoadingSample(true);
+    setError(null);
+    try {
+      const file = await loadSampleMealPhoto();
+      validateFoodPhoto(file);
+      setSelectedFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+      setAnalysisResult(null);
+    } catch {
+      setError("The sample photo could not be loaded. Check your connection, or take a photo instead.");
+    } finally {
+      setIsLoadingSample(false);
     }
   };
 
@@ -481,6 +504,12 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd, i
     uploading: `Nutri is checking your ${scanType}…`,
     analyzing: `Nutri is reading your ${scanType} description…`,
   };
+
+  const statusMessage = isAnalyzing
+    ? phaseCopy[analysisPhase]
+    : isLoadingSample
+      ? "Loading the sample photo…"
+      : "";
 
   // A capped allowance the UI knows about. An unlimited caller, or a quota
   // the backend could not be asked for, leaves the scanner unchanged.
@@ -668,6 +697,37 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd, i
                       >
                         <ImageIcon size={20} strokeWidth={2.5} aria-hidden="true" /> Choose from gallery
                       </button>
+
+                      {/* Guests are here to look around, often on a desktop
+                          browser with no meal photo to hand. The sample is
+                          offered only for a food scan, since it is a plated
+                          dinner and would read poorly as a product label or a
+                          single ingredient. */}
+                      {isGuest && scanType === "food" && (
+                        <button
+                          type="button"
+                          onClick={handleUseSample}
+                          disabled={isLoadingSample}
+                          className="flex w-full items-center gap-3 rounded-[24px] border border-dashed border-divider px-3 py-3 text-left transition-colors hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          <img
+                            src={sampleMealUrl}
+                            alt=""
+                            className="h-14 w-14 shrink-0 rounded-2xl object-cover"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold text-ink">
+                              No photo handy? Try this meal
+                            </span>
+                            <span className="mt-0.5 block text-xs leading-relaxed text-neutral-600">
+                              Rice and beans, mango, squash, and milk — see what Nutri makes of it.
+                            </span>
+                          </span>
+                          {isLoadingSample && (
+                            <Loader2 className="shrink-0 animate-spin text-neutral-700" size={18} aria-hidden="true" />
+                          )}
+                        </button>
+                      )}
                     </>
                   )}
 
@@ -704,8 +764,8 @@ const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onAdd, i
                 </div>
               )}
 
-              <p role="status" aria-live="polite" className={isAnalyzing ? "rounded-2xl bg-accent-2-100 px-4 py-3 text-sm font-semibold text-accent-2-900" : "sr-only"}>
-                {isAnalyzing ? phaseCopy[analysisPhase] : ""}
+              <p role="status" aria-live="polite" className={statusMessage ? "rounded-2xl bg-accent-2-100 px-4 py-3 text-sm font-semibold text-accent-2-900" : "sr-only"}>
+                {statusMessage}
               </p>
               {error && (
                 <p role="alert" className="rounded-2xl bg-accent-100 px-4 py-3 text-sm text-accent-900">

@@ -95,6 +95,15 @@ async function signIn(page: Page) {
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
+// The suite starts signed in (beforeEach seeds a token), so reaching the guest
+// identity means leaving the account first.
+async function enterAsGuest(page: Page) {
+  await navTab(page, "Account").click();
+  await content(page).getByRole("button", { name: "Log out" }).click();
+  await page.getByRole("button", { name: "Continue as guest" }).click();
+  await expect(page.getByRole("heading", { name: /at the table/ })).toBeVisible();
+}
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((token) => {
     localStorage.setItem("auth_token", token);
@@ -532,13 +541,6 @@ test.describe("guest AI allowance", () => {
     estimatedExpiryDays: 2,
   };
 
-  const enterAsGuest = async (page: Page) => {
-    await navTab(page, "Account").click();
-    await content(page).getByRole("button", { name: "Log out" }).click();
-    await page.getByRole("button", { name: "Continue as guest" }).click();
-    await expect(page.getByRole("heading", { name: /at the table/ })).toBeVisible();
-  };
-
   test("shows the remaining scans and counts one down per analysis", async ({ page }) => {
     await stubQuota(page, 3);
     await page.route(ANALYZE_PATH, (route) => route.fulfill({ status: 200, json: [analyzedItem] }));
@@ -609,6 +611,101 @@ test.describe("guest AI allowance", () => {
     // The rejection also updates the scanner, which now offers no analysis.
     await expect(dialog.getByText("Today’s 3 guest AI scans are used up.")).toBeVisible();
     await expect(dialog.getByRole("button", { name: /Analyze|Use this photo/ })).toHaveCount(0);
+  });
+});
+
+test.describe("guest sample photo", () => {
+  const SAMPLE_OFFER = /No photo handy\? Try this meal/;
+
+  const sampleAnalysis = [{
+    name: "Rice and beans",
+    calories: 340,
+    protein: 12,
+    carbs: 58,
+    fat: 6,
+    sodium: 410,
+    calcium: 90,
+    iron: 3.1,
+    scanType: "food",
+    quantityGrams: 250,
+    category: "grains",
+    estimatedExpiryDays: 3,
+  }];
+
+  const openGuestScanner = async (page: Page) => {
+    await enterAsGuest(page);
+    await headerButton(page, "Log food").click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Photo" }).click();
+    return dialog;
+  };
+
+  test("analyzes the bundled photo without the guest supplying one", async ({ page }) => {
+    await page.route(ANALYZE_PATH, (route) => route.fulfill({ status: 200, json: sampleAnalysis }));
+    const dialog = await openGuestScanner(page);
+
+    await dialog.getByRole("button", { name: SAMPLE_OFFER }).click();
+
+    // The sample lands in the preview like any other pick, so the guest still
+    // decides whether to spend a scan on it.
+    await expect(page.getByAltText("Preview of the selected meal")).toBeVisible();
+    await expect(dialog.getByText("sample-meal.jpg")).toBeVisible();
+
+    const requestPromise = page.waitForRequest(ANALYZE_PATH);
+    await dialog.getByRole("button", { name: "Use this photo" }).click();
+    const payload = (await requestPromise).postDataJSON() as { type: string; mimeType: string; data: string };
+    // The sample is uploaded as image bytes prepared on the device — nothing
+    // marks it as a sample, so it exercises the real analysis path.
+    expect(payload.type).toBe("image");
+    expect(payload.mimeType).toBe("image/jpeg");
+    expect(payload.data.length).toBeGreaterThan(100);
+
+    await expect(dialog.getByRole("heading", { name: "Check your meal" })).toBeVisible();
+    await expect(dialog.getByLabel("Food name")).toHaveValue("Rice and beans");
+  });
+
+  test("offers the sample only for a food scan, and never to a signed-in user", async ({ page }) => {
+    const dialog = await openGuestScanner(page);
+    await expect(dialog.getByRole("button", { name: SAMPLE_OFFER })).toBeVisible();
+
+    // A plated dinner would read poorly as a barcode-side product shot or as
+    // a single ingredient, so the offer is withdrawn for those scans.
+    await dialog.getByRole("button", { name: "Product" }).click();
+    await expect(dialog.getByRole("button", { name: SAMPLE_OFFER })).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Ingredient" }).click();
+    await expect(dialog.getByRole("button", { name: SAMPLE_OFFER })).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Food", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: SAMPLE_OFFER })).toBeVisible();
+
+    // Signed in, the scanner stays uncluttered: these users have their own
+    // photos and no allowance to explore with.
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await navTab(page, "Account").click();
+    await content(page).getByRole("button", { name: "Log out" }).click();
+    await signIn(page);
+    await headerButton(page, "Log food").click();
+    const signedInDialog = page.getByRole("dialog");
+    await signedInDialog.getByRole("button", { name: "Photo" }).click();
+    await expect(signedInDialog.getByRole("button", { name: SAMPLE_OFFER })).toHaveCount(0);
+  });
+
+  test("reports a sample that cannot be loaded instead of opening an empty preview", async ({ page }) => {
+    // Fail the photo itself, not the module that resolves its URL: the dev
+    // server answers the "?import" request with the asset path as JavaScript,
+    // and aborting that would break the modal instead of the sample. Matching
+    // on a bare substring also survives the "?t=" cache-buster the dev server
+    // appends whenever the asset changes.
+    await page.route(
+      /sample-meal/,
+      (route) => (route.request().url().includes("?import") ? route.continue() : route.abort()),
+    );
+    const dialog = await openGuestScanner(page);
+
+    await dialog.getByRole("button", { name: SAMPLE_OFFER }).click();
+
+    await expect(dialog.getByRole("alert")).toContainText("sample photo could not be loaded");
+    await expect(page.getByAltText("Preview of the selected meal")).toBeHidden();
+    await expect(dialog.getByRole("button", { name: "Use this photo" })).toHaveCount(0);
   });
 });
 
