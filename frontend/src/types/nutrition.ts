@@ -27,16 +27,62 @@ export interface DailyGoal {
   iron: number;
 }
 
-// One item returned by food analysis — the nutrient breakdown plus a name,
-// ready to become a FoodEntry once an id and timestamp are attached.
-export type AnalyzedFoodItem = NutritionData & { name: string };
+/** What the scanner is looking at, and therefore how it affects the ledger. */
+export type ScanType = "food" | "product" | "ingredient";
+
+/** Storage choices shared by scanner review and the pantry. */
+export type FoodStorage = "fridge" | "freezer" | "pantry" | "other";
+
+/**
+ * Conservative shelf-life estimates used only when analysis cannot provide a
+ * better value. The review screen always turns the estimate into an editable
+ * calendar date before anything is saved.
+ */
+export const DEFAULT_EXPIRY_DAYS: Record<ScanType, number> = {
+  food: 3,
+  product: 30,
+  ingredient: 7,
+};
+
+// One item returned by scanner analysis. Nutrients describe the full scanned
+// quantity. Food and product nutrition is provisional until consumption is
+// reconciled; ingredient nutrition is recorded only when it is consumed.
+export type AnalyzedFoodItem = NutritionData & {
+  name: string;
+  scanType: ScanType;
+  quantityGrams: number;
+  category: string;
+  estimatedExpiryDays: number;
+};
+
+/** Reviewed scanner output, ready for the meal/pantry persistence workflow. */
+export type ScannedFoodInput = AnalyzedFoodItem & {
+  expiryDate: string;
+  /** True until the user explicitly edits the AI/default expiry date. */
+  expiryIsEstimated: boolean;
+  storage: FoodStorage;
+};
+
+/**
+ * A multi-item save can succeed per item. Keeping the failed indexes lets the
+ * review screen remove committed items so a retry cannot duplicate them.
+ */
+export class PartialScanSaveError extends Error {
+  constructor(
+    public readonly failedIndexes: number[],
+    public readonly succeededCount: number,
+  ) {
+    super("Some scanned items were saved while others failed.");
+    this.name = "PartialScanSaveError";
+  }
+}
 
 // Guest roles offered by the sign-in screen's auth bypass (testing only).
 export type GuestRole = "developer" | "alpha";
 
-// Presentational identity for the signed-in user. There is no real auth yet;
-// the default profile is the demo account and guest roles swap it out so the
-// bypass is visible in the chrome and on the account page.
+// Presentational identity for the signed-in user. The auth endpoint currently
+// returns only a token, so the default account chrome remains static; guest
+// roles swap it out so the testing bypass is visible.
 export interface UserProfile {
   name: string;
   email: string;

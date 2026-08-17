@@ -14,6 +14,17 @@ const TOKEN_STORAGE_KEY = "auth_token";
 
 let authToken: string | null = localStorage.getItem(TOKEN_STORAGE_KEY);
 
+export class ApiError extends Error {
+  constructor(
+    public readonly method: string,
+    public readonly path: string,
+    public readonly status: number,
+  ) {
+    super(`${method} ${path} failed: ${status}`);
+    this.name = "ApiError";
+  }
+}
+
 export function setToken(token: string | null): void {
   authToken = token;
   if (token) {
@@ -33,6 +44,14 @@ export async function apiGet<T>(path: string): Promise<T> {
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return request<T>("POST", path, body);
+}
+
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("PUT", path, body);
+}
+
+export async function apiDelete(path: string): Promise<void> {
+  await request<void>("DELETE", path);
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -95,7 +114,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       durationMs: performance.now() - started,
       attrs: { ...httpAttrs, "http.response.status_code": res.status },
     });
-    throw new Error(`${action} failed: ${res.status}`);
+    throw new ApiError(method, path, res.status);
   }
 
   logEvent({
@@ -109,5 +128,6 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     durationMs: performance.now() - started,
     attrs: { ...httpAttrs, "http.response.status_code": res.status },
   });
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }

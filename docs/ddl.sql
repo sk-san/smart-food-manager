@@ -45,8 +45,7 @@ CREATE TYPE nutrient_focus AS ENUM (
 );
 
 -- =============================================================================
---  USERS & RBAC  (backs the JWT/RBAC middleware; login is stubbed today and
---  auth.go says "Replace with a real lookup against the users table")
+--  USERS & RBAC  (backs database-authenticated login and JWT/RBAC middleware)
 -- =============================================================================
 
 CREATE TABLE roles (

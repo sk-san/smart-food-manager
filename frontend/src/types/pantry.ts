@@ -1,5 +1,6 @@
 // Domain types for the larder view (design 1c "Freshness Field") — the
 // food-loss angle: what's in the kitchen, plotted by days until it turns.
+import type { NutritionData, ScanType } from './nutrition';
 
 export interface LarderItem {
   id: string;
@@ -10,10 +11,45 @@ export interface LarderItem {
   monogram: string;
   /** Days until the item turns; drives position, size and urgency color. */
   daysLeft: number;
+  foodId?: string;
+  quantityPurchased?: number;
+  quantityConsumed?: number;
+  quantityWasted?: number;
+  storage?: string;
+  package?: string;
+  dateLabel?: string;
+  expiryDate?: string;
+  expiryIsEstimated?: boolean;
+  sourceType?: ScanType;
+  category?: string;
+  provisionalMealId?: string;
+  nutritionPer100g?: NutritionData;
+  isResolved?: boolean;
 }
 
-// Demo larder. Items live in seed data for now; persistence through the
-// backend is a follow-up — same treatment as food entries in App.
+export interface NewLarderItem {
+  name: string;
+  quantityPurchased: number;
+  expiryDate: string;
+  storage: 'fridge' | 'freezer' | 'pantry' | 'other';
+}
+
+export interface WasteEvent {
+  id: string;
+  inventoryItemId?: string;
+  foodName: string;
+  quantity: number;
+  wastedAt: number;
+  reason: string;
+  category?: string;
+  impactKgCO2e: number;
+  virtualWaterL: number;
+  treeEquivalents: number;
+  impactFactorVersion?: string;
+}
+
+// Sample larder shown only by the testing-only guest bypass. Authenticated
+// sessions replace it with inventory loaded from the API.
 export const SEED_LARDER: LarderItem[] = [
   { id: "spinach", name: "Baby spinach", label: "spinach", monogram: "Sp", daysLeft: 1 },
   { id: "yogurt", name: "Greek yogurt", label: "yogurt", monogram: "Yo", daysLeft: 2 },
@@ -27,6 +63,3 @@ export const SEED_LARDER: LarderItem[] = [
 
 /** Items at daysLeft ≤ this feed the "eat soon" queue and its recipe card. */
 export const EAT_SOON_DAYS = 2;
-
-/** Days since anything in the larder was thrown away (demo aggregate). */
-export const ZERO_WASTE_STREAK_DAYS = 11;

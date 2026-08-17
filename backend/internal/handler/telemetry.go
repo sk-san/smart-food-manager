@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/example/food-app/backend/internal/logging"
-	"github.com/example/food-app/backend/internal/middleware"
+	"github.com/sk-san/smart-food-manager/backend/internal/logging"
+	"github.com/sk-san/smart-food-manager/backend/internal/middleware"
 )
 
 const (

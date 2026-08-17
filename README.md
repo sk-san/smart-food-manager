@@ -8,6 +8,10 @@ Highlights:
 
 - **AI features** via Google Gemini — analyze a meal from text or a photo, extract nutrition facts
   from a product-label image, and generate nutrition advice / in-character companion messages.
+- **Scan-to-pantry lifecycle** — food and products are provisionally credited to nutrition totals,
+  ingredients wait until consumption, and later consumption reconciles the ledger with pantry stock.
+- **Food-loss accounting** — expired stock moves to waste exactly once and waste events expose
+  estimated CO2e, virtual-water, and urban-tree-year equivalents.
 - **Structured observability** — every request emits OpenTelemetry traces, metrics, and structured
   logs, exported to a local Grafana LGTM stack (Loki / Tempo / Prometheus / Grafana).
 - **JWT auth + RBAC** middleware, a per-IP rate limiter, and PII-safe hashed identifiers in logs.
@@ -61,8 +65,9 @@ smart-food-manager/
 - Go 1.25+
 - Node 20+
 - Docker (for Postgres via Compose)
-- A Google Gemini API key — **optional**; the AI endpoints return `503` until `GEMINI_API_KEY`
-  is set, and the frontend falls back to local estimates so the UI stays usable without it.
+- A Google Gemini API key — **optional**; AI-backed endpoints return `502` until
+  `GEMINI_API_KEY` is set, and the frontend falls back to local estimates so
+  the implemented UI flows stay usable without it.
 
 ## Configuration
 
@@ -117,9 +122,52 @@ make install
 make frontend         # serves on http://localhost:5173
 ```
 
-Open http://localhost:5173. The page calls `/healthz` and `/api/v1/nutrients` through Vite's dev
-proxy (see [`frontend/vite.config.ts`](frontend/vite.config.ts)), so the browser stays single-origin.
-Adminer (DB browser) is at http://localhost:8081 (server `db`, user/password from `.env`).
+Open http://localhost:5173. Vite's development proxy exposes `/healthz` and
+`/api/*` from the backend on the frontend origin (see
+[`frontend/vite.config.ts`](frontend/vite.config.ts)). Adminer (DB browser) is
+at http://localhost:8081 (server `db`, user/password from `.env`).
+
+Existing databases need the inventory-lifecycle migration before starting the
+updated API:
+
+```bash
+docker compose exec -T db psql -U "${POSTGRES_USER:-app}" -d "${POSTGRES_DB:-foodapp}" \
+  < backend/migrations/0003_inventory_lifecycle.sql
+```
+
+## Scan and pantry lifecycle
+
+- **Food / product:** scanning stores the nutrient snapshot, creates pantry stock with an expiry
+  date, and provisionally counts the whole scanned portion. Recording the actual consumed amount
+  replaces that estimate; an explicitly discarded remainder becomes a waste event.
+- **Ingredient:** scanning stores the nutrient snapshot in the pantry without changing intake.
+  Each consumed portion becomes a meal entry, while an undiscarded remainder stays available until
+  its estimated expiry.
+- **Expiry:** listing pantry or waste data reconciles overdue unresolved stock transactionally.
+  The remaining quantity is marked resolved and copied to waste once; history is retained rather
+  than physically deleting the inventory row. An open client refreshes at browser-local midnight
+  and when it resumes; the server applies the profile timezone when deciding what has expired.
+- **Impact:** every waste event is converted from grams using category-level global-average
+  coefficients. Values are estimates for feedback, not a formal lifecycle assessment; see
+  [`docs/ENVIRONMENTAL_IMPACT.md`](docs/ENVIRONMENTAL_IMPACT.md) for formulas and sources.
+
+## Install on Android
+
+The frontend is an installable Progressive Web App. Its production build includes an Android-ready
+manifest, maskable cat icons, standalone display mode, offline app-shell support, safe-area handling,
+and a rear-camera capture flow.
+
+```bash
+cd frontend
+npm run build
+npm run preview
+```
+
+For local testing, open the preview in Chrome. For installation on a phone, host `frontend/dist`
+over HTTPS, set `VITE_API_BASE_URL` to the HTTPS backend origin when the API is not served from the
+same host, then choose **Install app** in Chrome. Camera input opens the rear camera when Android
+supports it and always keeps a gallery fallback. Before upload, photos are re-oriented, stripped of
+EXIF metadata, converted to JPEG, and downscaled to a maximum 1,600 px edge.
 
 To run the whole app in containers instead:
 
@@ -159,18 +207,28 @@ Run `make help` for the full list of targets (also: `migrate`, `build`, `clean`)
 
 ## API
 
-Base path `/api/v1`. AI endpoints (marked ¹) require `GEMINI_API_KEY` and return `503` when it is unset.
+Base path `/api/v1`. See [the complete frontend and backend API
+reference](docs/API.md) for request and response schemas, validation, status
+codes, frontend call coverage, the outbound Gemini contract, and known
+integration gaps.
+
+AI-backed routes require `GEMINI_API_KEY`. In the current server wiring, a
+missing key is reported as `502` by those handlers.
 
 | Method | Path                       | Auth             | Notes                                             |
 | ------ | -------------------------- | ---------------- | ------------------------------------------------- |
 | GET    | `/healthz`                 | none             | Liveness + DB ping                                |
-| POST   | `/api/v1/auth/login`       | none             | **Demo stub** — issues a token for any non-empty email |
+| POST   | `/api/v1/auth/login`       | none             | Verifies an active database user and issues a JWT |
 | GET    | `/api/v1/nutrients`        | none             | Lists the active nutrient master                  |
 | POST   | `/api/v1/telemetry/logs`   | optional Bearer  | Frontend telemetry sink; a token binds events to the user |
-| POST   | `/api/v1/nutrition/analyze`| optional Bearer  | AI food analysis from text or an image ¹          |
+| POST   | `/api/v1/nutrition/analyze`| optional Bearer  | AI food analysis from text or an image             |
 | GET    | `/api/v1/me`               | Bearer           | Returns the caller's claims                       |
-| POST   | `/api/v1/nutrients/advice` | Bearer           | AI nutrition advice ¹                             |
-| POST   | `/api/v1/foods/from-label` | Bearer           | Extract nutrients from a label image and save a food ¹ |
+| GET    | `/api/v1/inventory`        | Bearer           | Lists active pantry stock; reconciles expiry      |
+| POST   | `/api/v1/inventory/scans`  | Bearer           | Atomically saves a scan to pantry and nutrition   |
+| POST   | `/api/v1/inventory/{id}/consume` | Bearer     | Reconciles consumed, remaining, and wasted amounts |
+| GET    | `/api/v1/waste-events`     | Bearer           | Lists waste with environmental-impact estimates   |
+| POST   | `/api/v1/nutrients/advice` | Bearer           | AI nutrition advice                               |
+| POST   | `/api/v1/foods/from-label` | Bearer           | Extract nutrients from a label image and save a food |
 | GET    | `/api/v1/admin/ping`       | Bearer + `admin` | RBAC example                                      |
 
 Try the protected route:
@@ -178,14 +236,15 @@ Try the protected route:
 ```bash
 TOKEN=$(curl -s localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"me@example.com","password":"x"}' | sed 's/.*"token":"//;s/".*//')
+  -d '{"email":"me@example.com","password":"correct-horse"}' | sed 's/.*"token":"//;s/".*//')
 curl localhost:8080/api/v1/me -H "Authorization: Bearer $TOKEN"
 ```
 
+The login example requires a matching active user and bcrypt password hash in
+the database; the application does not currently expose a signup endpoint.
+
 ## Before shipping
 
-- Replace the login stub in [`backend/internal/handler/auth.go`](backend/internal/handler/auth.go)
-  with a real lookup against the `users` table and password-hash verification.
 - Move the JWT secret and `LOG_HASH_SALT` out of defaults into managed secrets, and set a real
   `GEMINI_API_KEY`.
 - Swap the in-memory rate limiter for a shared (e.g. Redis) limiter once you run more than one

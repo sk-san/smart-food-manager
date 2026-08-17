@@ -21,8 +21,8 @@ type Config struct {
 	ServiceName    string
 	ServiceVersion string
 	Environment    string
-	// LogHashSalt is mixed into hashed log identifiers (client IPs, demo
-	// user emails) so they cannot be reversed by brute force.
+	// LogHashSalt is mixed into hashed log identifiers (client IPs and user
+	// identifiers) so they cannot be reversed by brute force.
 	LogHashSalt string
 
 	// Gemini external API configuration.

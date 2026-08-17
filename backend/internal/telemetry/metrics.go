@@ -26,7 +26,7 @@ var (
 )
 
 func init() {
-	m := otel.Meter("github.com/example/food-app/backend/internal/telemetry")
+	m := otel.Meter("github.com/sk-san/smart-food-manager/backend/internal/telemetry")
 	durationBuckets := metric.WithExplicitBucketBoundaries(5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000)
 
 	HTTPRequestsTotal, _ = m.Int64Counter("http_server_requests_total",

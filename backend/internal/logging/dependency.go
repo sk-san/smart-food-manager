@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/example/food-app/backend/internal/telemetry"
+	"github.com/sk-san/smart-food-manager/backend/internal/telemetry"
 )
 
 // Dependency identifies an external service call (e.g. the Gemini API).

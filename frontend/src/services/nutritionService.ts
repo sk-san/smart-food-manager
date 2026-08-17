@@ -5,18 +5,24 @@
 // project's logging/data-infra blueprint (no secrets or raw prompts in the
 // client) so these now route through the backend via our instrumented
 // apiPost client — every call carries traceparent and emits api_request_*
-// telemetry. Until the backend AI route ships, calls fall back to a local
-// estimate so the UI stays functional.
+// telemetry. Calls fall back to local estimates when the configured AI
+// provider is unavailable, so the UI stays functional without an API key.
 import { apiPost } from "../api/client";
 import { logEvent } from "../telemetry/logger";
-import type { AnalyzedFoodItem, DailyGoal, NutritionData } from "../types/nutrition";
+import {
+  DEFAULT_EXPIRY_DAYS,
+  type AnalyzedFoodItem,
+  type DailyGoal,
+  type NutritionData,
+  type ScanType,
+} from "../types/nutrition";
 
 const ANALYZE_PATH = "/api/v1/nutrition/analyze";
 const COMPANION_PATH = "/api/v1/companion/message";
 
-// A deterministic placeholder so the log screen works end to end before the
-// backend analysis endpoint exists.
-const FALLBACK_ITEM: AnalyzedFoodItem = {
+// A deterministic nutrition fallback for provider or network failures. Scanner
+// metadata is attached at call time so it follows the type the user selected.
+const FALLBACK_NUTRITION: NutritionData & { name: string } = {
   name: "Estimated item",
   calories: 95,
   protein: 0.5,
@@ -25,6 +31,52 @@ const FALLBACK_ITEM: AnalyzedFoodItem = {
   sodium: 1,
   calcium: 6,
   iron: 0.1,
+};
+
+type RawAnalyzedFoodItem = NutritionData & {
+  name: string;
+  scanType?: unknown;
+  scan_type?: unknown;
+  quantityGrams?: unknown;
+  quantity_grams?: unknown;
+  category?: unknown;
+  estimatedExpiryDays?: unknown;
+  estimated_expiry_days?: unknown;
+};
+
+const isScanType = (value: unknown): value is ScanType =>
+  value === "food" || value === "product" || value === "ingredient";
+
+const finiteNumber = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+const normalizeAnalyzedItem = (
+  item: RawAnalyzedFoodItem,
+  selectedScanType: ScanType,
+): AnalyzedFoodItem => {
+  const responseScanType = item.scanType ?? item.scan_type;
+  const quantity = finiteNumber(item.quantityGrams ?? item.quantity_grams);
+  const expiryDays = finiteNumber(item.estimatedExpiryDays ?? item.estimated_expiry_days);
+  const category = typeof item.category === "string" ? item.category.trim() : "";
+  const scanType = isScanType(responseScanType) ? responseScanType : selectedScanType;
+
+  return {
+    name: item.name,
+    calories: item.calories,
+    protein: item.protein,
+    carbs: item.carbs,
+    fat: item.fat,
+    sodium: item.sodium,
+    calcium: item.calcium,
+    iron: item.iron,
+    scanType,
+    quantityGrams: quantity !== null && quantity > 0 ? quantity : 100,
+    category: category || "other",
+    estimatedExpiryDays:
+      expiryDays !== null && expiryDays >= 0
+        ? Math.round(expiryDays)
+        : DEFAULT_EXPIRY_DAYS[scanType],
+  };
 };
 
 async function fileToBase64(file: File): Promise<string> {
@@ -46,7 +98,8 @@ async function fileToBase64(file: File): Promise<string> {
 // blueprint.
 export async function analyzeFoodInput(
   input: string | File,
-  inputType: "text" | "image"
+  inputType: "text" | "image",
+  scanType: ScanType,
 ): Promise<AnalyzedFoodItem[]> {
   const isImage = inputType === "image" && input instanceof File;
 
@@ -64,14 +117,15 @@ export async function analyzeFoodInput(
   try {
     const body =
       inputType === "text"
-        ? { type: "text", text: input as string }
+        ? { type: "text", text: input as string, scanType }
         : {
             type: "image",
             mimeType: (input as File).type,
             data: await fileToBase64(input as File),
+            scanType,
           };
 
-    const items = await apiPost<AnalyzedFoodItem[]>(ANALYZE_PATH, body);
+    const items = await apiPost<RawAnalyzedFoodItem[]>(ANALYZE_PATH, body);
 
     if (isImage) {
       logEvent({
@@ -83,7 +137,7 @@ export async function analyzeFoodInput(
         attrs: { "file.mime_type": (input as File).type, "file.size_bytes": (input as File).size },
       });
     }
-    return items;
+    return items.map((item) => normalizeAnalyzedItem(item, scanType));
   } catch (err) {
     if (isImage) {
       logEvent({
@@ -96,15 +150,20 @@ export async function analyzeFoodInput(
         attrs: { "error.type": err instanceof Error ? err.name : "Error" },
       });
     }
-    // Backend route not available yet (or transient failure): keep the UI
-    // usable with a single estimated item.
-    return [{ ...FALLBACK_ITEM, name: inputType === "text" ? deriveName(input as string) : "Scanned food" }];
+    // A failed photo upload must stay a failed upload: presenting a generic
+    // "Scanned food" estimate would imply the backend had seen the image.
+    // Text remains usable offline with an explicitly generic estimate.
+    if (isImage) throw err;
+    return [normalizeAnalyzedItem({
+      ...FALLBACK_NUTRITION,
+      name: deriveName(input as string),
+    }, scanType)];
   }
 }
 
 function deriveName(text: string): string {
   const trimmed = text.trim();
-  if (!trimmed) return FALLBACK_ITEM.name;
+  if (!trimmed) return FALLBACK_NUTRITION.name;
   return trimmed.length > 40 ? trimmed.slice(0, 40) + "…" : trimmed;
 }
 
@@ -124,8 +183,8 @@ export async function getCompanionMessage(
 
 function localCompanionMessage(stats: NutritionData, goals: DailyGoal): string {
   const ratio = goals.calories > 0 ? stats.calories / goals.calories : 0;
-  if (ratio > 1) return "Oof! Too full! ( >ω<)";
-  if (ratio > 0.8) return "Almost there, Master! (◕‿◕)";
-  if (ratio > 0.5) return "Yummy progress! :3";
-  return "I'm hungry... feed me! (・`ω´・)";
+  if (ratio > 1) return "Your day is logged. One number never defines your progress.";
+  if (ratio > 0.8) return "You’re close to today’s energy guide. Keep listening to your body.";
+  if (ratio > 0.5) return "Steady progress. Every meal gives us a clearer picture.";
+  return "Ready when you are. Snap a meal and I’ll help with the numbers.";
 }

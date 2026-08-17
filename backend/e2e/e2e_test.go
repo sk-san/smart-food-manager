@@ -34,10 +34,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/example/food-app/backend/internal/config"
-	"github.com/example/food-app/backend/internal/middleware"
-	"github.com/example/food-app/backend/internal/server"
-	"github.com/example/food-app/backend/internal/store"
+	"github.com/sk-san/smart-food-manager/backend/internal/config"
+	"github.com/sk-san/smart-food-manager/backend/internal/middleware"
+	"github.com/sk-san/smart-food-manager/backend/internal/server"
+	"github.com/sk-san/smart-food-manager/backend/internal/store"
 )
 
 // fakeGemini stands in for the Gemini generateContent API. Tests set the
@@ -183,7 +183,7 @@ func (s *suite) doRaw(t *testing.T, method, path, token string, body any) (int, 
 
 // e2ePassword is the password every seedUser row is hashed from, so tests
 // can log in without needing a signup endpoint.
-const e2ePassword = "irrelevant-demo-password"
+const e2ePassword = "integration-test-password"
 
 // seedUser inserts a user row with a bcrypt hash of e2ePassword and removes
 // it when the test finishes.
@@ -256,7 +256,7 @@ func TestHealthz(t *testing.T) {
 func TestLogin(t *testing.T) {
 	s := startSuite(t)
 
-	t.Run("issues a token for the demo user", func(t *testing.T) {
+	t.Run("issues a token for the seeded user", func(t *testing.T) {
 		_ = s.login(t, "e2e@example.com")
 	})
 
@@ -316,7 +316,7 @@ func TestAuthAndRBAC(t *testing.T) {
 	})
 
 	t.Run("allows admin routes to the admin role", func(t *testing.T) {
-		// The demo login only issues "user"; mint an admin token directly
+		// The seeded login user only has the "user" role; mint an admin token directly
 		// with the suite's signing secret to exercise RequireRole's allow path.
 		token, err := middleware.NewToken(s.cfg.JWTSecret, "e2e-admin@example.com",
 			[]string{"admin"}, time.Minute)
@@ -418,7 +418,7 @@ func TestAdvice(t *testing.T) {
 
 	t.Run("returns the model's advice", func(t *testing.T) {
 		token := s.login(t, "e2e-advice@example.com")
-		s.fake.set("Aim for roughly 0.8 g of protein per kg of body weight.")
+		s.fake.set(`{"advice":"Aim for roughly 0.8 g of protein per kg of body weight."}`)
 		status, body := s.doJSON(t, http.MethodPost, "/api/v1/nutrients/advice", token,
 			map[string]string{"prompt": "how much protein per day?"})
 		if status != http.StatusOK {
@@ -427,6 +427,26 @@ func TestAdvice(t *testing.T) {
 		advice, _ := body["advice"].(string)
 		if !strings.Contains(advice, "0.8 g of protein") {
 			t.Fatalf("advice = %q, want the fake model text", advice)
+		}
+	})
+
+	t.Run("maps malformed model output to 502", func(t *testing.T) {
+		token := s.login(t, "e2e-advice-malformed@example.com")
+		s.fake.set("this is not JSON")
+		status, body := s.doJSON(t, http.MethodPost, "/api/v1/nutrients/advice", token,
+			map[string]string{"prompt": "what should I eat?"})
+		if status != http.StatusBadGateway || body["error"] != "could not parse advice" {
+			t.Fatalf("got status=%d body=%v, want 502 parse error", status, body)
+		}
+	})
+
+	t.Run("maps empty model advice to 502", func(t *testing.T) {
+		token := s.login(t, "e2e-advice-empty@example.com")
+		s.fake.set(`{"advice":"   "}`)
+		status, body := s.doJSON(t, http.MethodPost, "/api/v1/nutrients/advice", token,
+			map[string]string{"prompt": "what should I eat?"})
+		if status != http.StatusBadGateway || body["error"] != "advice result is empty" {
+			t.Fatalf("got status=%d body=%v, want 502 empty-advice error", status, body)
 		}
 	})
 }
@@ -509,6 +529,417 @@ func TestLabelExtractAndSave(t *testing.T) {
 	}
 	if amount != 12.5 {
 		t.Errorf("amount_per_100g = %v, want 12.5", amount)
+	}
+}
+
+func TestAuthenticatedPersistenceCRUD(t *testing.T) {
+	s := startSuite(t)
+	token := s.login(t, "e2e-persistence@example.com")
+
+	t.Run("goals", func(t *testing.T) {
+		goals := map[string]float64{
+			"calories": 2400, "protein": 160, "carbs": 275, "fat": 75,
+			"sodium": 2200, "calcium": 1100, "iron": 20,
+		}
+		status, body := s.doJSON(t, http.MethodPut, "/api/v1/goals", token, goals)
+		if status != http.StatusOK || body["calories"] != float64(2400) {
+			t.Fatalf("put goals: status=%d body=%v", status, body)
+		}
+		status, body = s.doJSON(t, http.MethodGet, "/api/v1/goals", token, nil)
+		if status != http.StatusOK || body["protein"] != float64(160) {
+			t.Fatalf("get goals: status=%d body=%v", status, body)
+		}
+		status, _ = s.doJSON(t, http.MethodDelete, "/api/v1/goals", token, nil)
+		if status != http.StatusNoContent {
+			t.Fatalf("delete goals: got %d, want 204", status)
+		}
+	})
+
+	var mealID string
+	t.Run("meals", func(t *testing.T) {
+		meal := map[string]any{
+			"name": "E2E lentil bowl", "consumed_at": "2026-08-11T12:30:00Z",
+			"calories": 510, "protein": 28, "carbs": 72, "fat": 13,
+			"sodium": 640, "calcium": 120, "iron": 6.5,
+		}
+		status, body := s.doJSON(t, http.MethodPost, "/api/v1/meals", token, meal)
+		if status != http.StatusCreated {
+			t.Fatalf("create meal: status=%d body=%v", status, body)
+		}
+		mealID, _ = body["id"].(string)
+		if mealID == "" || body["calories"] != float64(510) {
+			t.Fatalf("created meal = %v", body)
+		}
+		otherToken := s.login(t, "e2e-persistence-other@example.com")
+		status, _ = s.doJSON(t, http.MethodGet, "/api/v1/meals/"+mealID, otherToken, nil)
+		if status != http.StatusNotFound {
+			t.Fatalf("another user read the meal: got %d, want 404", status)
+		}
+
+		status, raw := s.doRaw(t, http.MethodGet, "/api/v1/meals", token, nil)
+		var meals []map[string]any
+		if status != http.StatusOK || json.Unmarshal(raw, &meals) != nil || len(meals) != 1 {
+			t.Fatalf("list meals: status=%d body=%s", status, raw)
+		}
+
+		meal["name"] = "Updated lentil bowl"
+		meal["calories"] = 525
+		status, body = s.doJSON(t, http.MethodPut, "/api/v1/meals/"+mealID, token, meal)
+		if status != http.StatusOK || body["name"] != "Updated lentil bowl" {
+			t.Fatalf("update meal: status=%d body=%v", status, body)
+		}
+
+		status, _ = s.doJSON(t, http.MethodDelete, "/api/v1/meals/"+mealID, token, nil)
+		if status != http.StatusNoContent {
+			t.Fatalf("delete meal: got %d, want 204", status)
+		}
+	})
+
+	t.Run("inventory and waste stay in sync", func(t *testing.T) {
+		status, body := s.doJSON(t, http.MethodPost, "/api/v1/inventory", token, map[string]any{
+			"name": "Already expired", "quantity_purchased": 100,
+			"quantity_consumed": 0, "best_before_date": "2000-01-01",
+			"date_label": "best_before", "storage": "pantry", "package": "unopened",
+		})
+		if status != http.StatusBadRequest {
+			t.Fatalf("create expired inventory: status=%d body=%v", status, body)
+		}
+
+		item := map[string]any{
+			"name": "E2E spinach", "quantity_purchased": 300,
+			"quantity_consumed": 50, "best_before_date": "2099-08-15",
+			"date_label": "best_before", "storage": "fridge", "package": "opened",
+		}
+		status, body = s.doJSON(t, http.MethodPost, "/api/v1/inventory", token, item)
+		if status != http.StatusCreated {
+			t.Fatalf("create inventory: status=%d body=%v", status, body)
+		}
+		itemID, _ := body["id"].(string)
+		if itemID == "" {
+			t.Fatalf("created inventory has no id: %v", body)
+		}
+		item["best_before_date"] = "2000-01-01"
+		status, body = s.doJSON(t, http.MethodPut, "/api/v1/inventory/"+itemID, token, item)
+		if status != http.StatusBadRequest {
+			t.Fatalf("update inventory to expired date: status=%d body=%v", status, body)
+		}
+		item["best_before_date"] = "2099-08-15"
+		item["name"] = "E2E baby spinach"
+		item["quantity_purchased"] = 320
+		status, body = s.doJSON(t, http.MethodPut, "/api/v1/inventory/"+itemID, token, item)
+		if status != http.StatusOK || body["name"] != "E2E baby spinach" {
+			t.Fatalf("update inventory: status=%d body=%v", status, body)
+		}
+
+		waste := map[string]any{
+			"inventory_item_id": itemID, "quantity_g": 40,
+			"reason": "spoiled_visible", "spoilage": "visual_mold",
+		}
+		status, body = s.doJSON(t, http.MethodPost, "/api/v1/waste-events", token, waste)
+		if status != http.StatusCreated {
+			t.Fatalf("create waste: status=%d body=%v", status, body)
+		}
+		eventID, _ := body["id"].(string)
+
+		status, body = s.doJSON(t, http.MethodGet, "/api/v1/inventory/"+itemID, token, nil)
+		if status != http.StatusOK || body["quantity_wasted"] != float64(40) {
+			t.Fatalf("inventory after waste: status=%d body=%v", status, body)
+		}
+
+		waste["quantity_g"] = 60
+		status, body = s.doJSON(t, http.MethodPut, "/api/v1/waste-events/"+eventID, token, waste)
+		if status != http.StatusOK || body["quantity_g"] != float64(60) {
+			t.Fatalf("update waste: status=%d body=%v", status, body)
+		}
+
+		status, _ = s.doJSON(t, http.MethodDelete, "/api/v1/waste-events/"+eventID, token, nil)
+		if status != http.StatusNoContent {
+			t.Fatalf("delete waste: got %d, want 204", status)
+		}
+		status, body = s.doJSON(t, http.MethodGet, "/api/v1/inventory/"+itemID, token, nil)
+		if status != http.StatusOK || body["quantity_wasted"] != float64(0) {
+			t.Fatalf("inventory after waste delete: status=%d body=%v", status, body)
+		}
+		status, body = s.doJSON(t, http.MethodPost, "/api/v1/waste-events", token,
+			map[string]any{
+				"inventory_item_id": itemID, "quantity_g": 10,
+				"reason": "overbought", "date_label": "best_before", "package": "opened",
+			})
+		if status != http.StatusCreated {
+			t.Fatalf("create retained waste: status=%d body=%v", status, body)
+		}
+		retainedEventID, _ := body["id"].(string)
+		status, _ = s.doJSON(t, http.MethodDelete, "/api/v1/inventory/"+itemID, token, nil)
+		if status != http.StatusNoContent {
+			t.Fatalf("delete inventory: got %d, want 204", status)
+		}
+		status, body = s.doJSON(t, http.MethodGet, "/api/v1/waste-events/"+retainedEventID, token, nil)
+		if status != http.StatusOK || body["inventory_item_id"] != nil {
+			t.Fatalf("retained waste after inventory delete: status=%d body=%v", status, body)
+		}
+	})
+}
+
+func TestScannedInventoryLifecycle(t *testing.T) {
+	s := startSuite(t)
+	token := s.login(t, "e2e-scanned-inventory@example.com")
+
+	scan := map[string]any{
+		"source_type": "product", "name": "E2E beef snack", "category": "beef",
+		"quantity_g": 50, "expiry_date": "2099-09-01", "expiry_is_estimated": false,
+		"date_label": "best_before", "storage": "pantry", "package": "unopened",
+		"consumed_at": "2026-08-16T09:00:00Z",
+		"nutrients": map[string]float64{
+			"calories": 200, "protein": 10, "carbs": 15, "fat": 8,
+			"sodium": 120, "calcium": 20, "iron": 1,
+		},
+	}
+	status, body := s.doJSON(t, http.MethodPost, "/api/v1/inventory/scans", token, scan)
+	if status != http.StatusCreated {
+		t.Fatalf("scan product: status=%d body=%v", status, body)
+	}
+	inventory, _ := body["inventory"].(map[string]any)
+	meal, _ := body["meal"].(map[string]any)
+	itemID, _ := inventory["id"].(string)
+	provisionalID, _ := inventory["provisional_meal_id"].(string)
+	nutrition, _ := inventory["nutrition_per_100g"].(map[string]any)
+	if itemID == "" || provisionalID == "" || inventory["source_type"] != "product" {
+		t.Fatalf("scanned inventory = %v", inventory)
+	}
+	if nutrition["calories"] != float64(400) || meal["calories"] != float64(200) {
+		t.Fatalf("normalized nutrition=%v provisional meal=%v", nutrition, meal)
+	}
+	status, body = s.doJSON(t, http.MethodPut, "/api/v1/meals/"+provisionalID, token,
+		map[string]any{
+			"name": "Edited provisional", "consumed_at": "2026-08-16T09:00:00Z",
+			"calories": 1, "protein": 1, "carbs": 1, "fat": 1,
+			"sodium": 1, "calcium": 1, "iron": 1,
+		})
+	if status != http.StatusConflict {
+		t.Fatalf("update provisional meal: status=%d body=%v", status, body)
+	}
+	status, body = s.doJSON(t, http.MethodDelete, "/api/v1/meals/"+provisionalID, token, nil)
+	if status != http.StatusConflict {
+		t.Fatalf("delete provisional meal: status=%d body=%v", status, body)
+	}
+	status, body = s.doJSON(t, http.MethodPut, "/api/v1/inventory/"+itemID, token,
+		map[string]any{
+			"name": "E2E beef snack", "quantity_purchased": 50, "quantity_consumed": 1,
+			"best_before_date": "2099-09-01", "date_label": "best_before",
+			"storage": "pantry", "package": "unopened",
+		})
+	if status != http.StatusConflict {
+		t.Fatalf("direct scanned consumption update: status=%d body=%v", status, body)
+	}
+	status, manualWaste := s.doJSON(t, http.MethodPost, "/api/v1/waste-events", token,
+		map[string]any{
+			"inventory_item_id": itemID, "quantity_g": 5,
+			"reason": "overbought", "date_label": "best_before", "package": "unopened",
+		})
+	if status != http.StatusCreated || manualWaste["quantity_g"] != float64(5) {
+		t.Fatalf("manual provisional waste: status=%d body=%v", status, manualWaste)
+	}
+	status, resizedProvisional := s.doJSON(t, http.MethodGet, "/api/v1/meals/"+provisionalID, token, nil)
+	if status != http.StatusOK || resizedProvisional["calories"] != float64(180) {
+		t.Fatalf("provisional after manual waste: status=%d body=%v", status, resizedProvisional)
+	}
+
+	status, body = s.doJSON(t, http.MethodPost, "/api/v1/inventory/"+itemID+"/consume", token,
+		map[string]any{"quantity_g": 20, "discard_remaining": false})
+	if status != http.StatusOK {
+		t.Fatalf("first consume: status=%d body=%v", status, body)
+	}
+	inventory, _ = body["inventory"].(map[string]any)
+	meal, _ = body["meal"].(map[string]any)
+	if inventory["quantity_consumed"] != float64(20) || inventory["provisional_meal_id"] != nil {
+		t.Fatalf("finalized inventory = %v", inventory)
+	}
+	if meal["id"] != provisionalID || meal["calories"] != float64(80) {
+		t.Fatalf("finalized provisional meal = %v", meal)
+	}
+
+	status, body = s.doJSON(t, http.MethodPost, "/api/v1/inventory/"+itemID+"/consume", token,
+		map[string]any{"quantity_g": 10, "discard_remaining": true, "waste_reason": "overbought"})
+	if status != http.StatusOK {
+		t.Fatalf("consume and discard: status=%d body=%v", status, body)
+	}
+	inventory, _ = body["inventory"].(map[string]any)
+	meal, _ = body["meal"].(map[string]any)
+	waste, _ := body["waste_event"].(map[string]any)
+	if inventory["is_resolved"] != true || inventory["quantity_wasted"] != float64(20) {
+		t.Fatalf("resolved inventory = %v", inventory)
+	}
+	if meal["id"] == provisionalID || meal["calories"] != float64(40) {
+		t.Fatalf("incremental meal = %v", meal)
+	}
+	if waste["quantity_g"] != float64(15) || waste["impact_kg_co2e"].(float64) <= 0 ||
+		waste["virtual_water_l"].(float64) <= 0 || waste["tree_equivalents"].(float64) <= 0 {
+		t.Fatalf("waste impact = %v", waste)
+	}
+
+	freshIngredientScan := map[string]any{
+		"source_type": "ingredient", "name": "E2E oats", "category": "grains",
+		"quantity_g": 100, "expiry_date": "2099-10-01", "expiry_is_estimated": true,
+		"date_label": "best_before", "storage": "pantry", "package": "unopened",
+		"nutrients": map[string]float64{
+			"calories": 300, "protein": 12, "carbs": 55, "fat": 5,
+			"sodium": 2, "calcium": 40, "iron": 4,
+		},
+	}
+	status, body = s.doJSON(t, http.MethodPost, "/api/v1/inventory/scans", token, freshIngredientScan)
+	if status != http.StatusCreated || body["meal"] != nil {
+		t.Fatalf("scan fresh ingredient: status=%d body=%v", status, body)
+	}
+	freshIngredient, _ := body["inventory"].(map[string]any)
+	freshIngredientID, _ := freshIngredient["id"].(string)
+	status, body = s.doJSON(t, http.MethodPost, "/api/v1/inventory/"+freshIngredientID+"/consume", token,
+		map[string]any{"quantity_g": 100, "discard_remaining": false})
+	if status != http.StatusOK {
+		t.Fatalf("consume ingredient: status=%d body=%v", status, body)
+	}
+	freshIngredient, _ = body["inventory"].(map[string]any)
+	meal, _ = body["meal"].(map[string]any)
+	if freshIngredient["is_resolved"] != true || meal["calories"] != float64(300) {
+		t.Fatalf("ingredient consumption inventory=%v meal=%v", freshIngredient, meal)
+	}
+
+	deletableScan := map[string]any{
+		"source_type": "food", "name": "E2E deletable meal", "category": "prepared",
+		"quantity_g": 25, "expiry_date": "2099-10-01", "expiry_is_estimated": false,
+		"date_label": "best_before", "storage": "fridge", "package": "opened",
+		"nutrients": map[string]float64{"calories": 100},
+	}
+	status, body = s.doJSON(t, http.MethodPost, "/api/v1/inventory/scans", token, deletableScan)
+	if status != http.StatusCreated {
+		t.Fatalf("scan deletable food: status=%d body=%v", status, body)
+	}
+	deletableInventory, _ := body["inventory"].(map[string]any)
+	deletableMeal, _ := body["meal"].(map[string]any)
+	deletableItemID, _ := deletableInventory["id"].(string)
+	deletableMealID, _ := deletableMeal["id"].(string)
+	status, _ = s.doJSON(t, http.MethodDelete, "/api/v1/inventory/"+deletableItemID, token, nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("delete scanned food: got %d, want 204", status)
+	}
+	status, _ = s.doJSON(t, http.MethodGet, "/api/v1/meals/"+deletableMealID, token, nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("provisional meal survived inventory delete: got %d, want 404", status)
+	}
+
+	ingredientScan := map[string]any{
+		"source_type": "ingredient", "name": "E2E expired spinach", "category": "vegetable",
+		"quantity_g": 100, "expiry_date": "2000-01-01", "expiry_is_estimated": true,
+		"date_label": "use_by", "storage": "fridge", "package": "unopened",
+		"nutrients": map[string]float64{
+			"calories": 23, "protein": 2.9, "carbs": 3.6, "fat": 0.4,
+			"sodium": 79, "calcium": 99, "iron": 2.7,
+		},
+	}
+	status, body = s.doJSON(t, http.MethodPost, "/api/v1/inventory/scans", token, ingredientScan)
+	if status != http.StatusBadRequest {
+		t.Fatalf("scan past-expiry ingredient: status=%d body=%v", status, body)
+	}
+	ingredientScan["expiry_date"] = "2099-10-01"
+	status, body = s.doJSON(t, http.MethodPost, "/api/v1/inventory/scans", token, ingredientScan)
+	if status != http.StatusCreated || body["meal"] != nil {
+		t.Fatalf("scan ingredient for expiry race: status=%d body=%v", status, body)
+	}
+	expiringIngredient, _ := body["inventory"].(map[string]any)
+	expiringIngredientID, _ := expiringIngredient["id"].(string)
+	if _, err := s.pool.Exec(context.Background(), `
+		UPDATE inventory_items SET use_by_date = '2000-01-01'
+		WHERE id = $1`, expiringIngredientID); err != nil {
+		t.Fatalf("force ingredient expiry: %v", err)
+	}
+	status, body = s.doJSON(t, http.MethodPost, "/api/v1/inventory/"+expiringIngredientID+"/consume", token,
+		map[string]any{"quantity_g": 10, "discard_remaining": false})
+	if status != http.StatusOK {
+		t.Fatalf("consume newly expired ingredient: status=%d body=%v", status, body)
+	}
+	expiredInventory, _ := body["inventory"].(map[string]any)
+	expiredWaste, _ := body["waste_event"].(map[string]any)
+	if expiredInventory["is_resolved"] != true || expiredInventory["quantity_wasted"] != float64(100) ||
+		expiredInventory["quantity_consumed"] != float64(0) || expiredWaste["quantity_g"] != float64(100) {
+		t.Fatalf("expired consume reconciliation: status=%d body=%v", status, body)
+	}
+	status, _ = s.doJSON(t, http.MethodGet, "/api/v1/inventory/"+expiringIngredientID, token, nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("resolved expired inventory get: got %d, want 404", status)
+	}
+	expiredWasteID, _ := expiredWaste["id"].(string)
+	status, body = s.doJSON(t, http.MethodPut, "/api/v1/waste-events/"+expiredWasteID, token,
+		map[string]any{
+			"inventory_item_id": expiringIngredientID, "quantity_g": 50,
+			"reason": "expired_use_by", "date_label": "use_by",
+			"date_status": "15_plus_days_after", "package": "unopened",
+		})
+	if status != http.StatusConflict {
+		t.Fatalf("update automatic expiry waste: status=%d body=%v", status, body)
+	}
+	status, body = s.doJSON(t, http.MethodDelete, "/api/v1/waste-events/"+expiredWasteID, token, nil)
+	if status != http.StatusConflict {
+		t.Fatalf("delete automatic expiry waste: status=%d body=%v", status, body)
+	}
+
+	autoExpiryScan := map[string]any{
+		"source_type": "product", "name": "E2E expiring product", "category": "prepared",
+		"quantity_g": 40, "expiry_date": "2099-10-01", "expiry_is_estimated": true,
+		"date_label": "best_before", "storage": "fridge", "package": "unopened",
+		"nutrients": map[string]float64{"calories": 160, "protein": 4},
+	}
+	status, body = s.doJSON(t, http.MethodPost, "/api/v1/inventory/scans", token, autoExpiryScan)
+	if status != http.StatusCreated {
+		t.Fatalf("scan product for auto-expiry: status=%d body=%v", status, body)
+	}
+	autoInventory, _ := body["inventory"].(map[string]any)
+	autoMeal, _ := body["meal"].(map[string]any)
+	autoItemID, _ := autoInventory["id"].(string)
+	autoMealID, _ := autoMeal["id"].(string)
+	status, autoManualWaste := s.doJSON(t, http.MethodPost, "/api/v1/waste-events", token,
+		map[string]any{
+			"inventory_item_id": autoItemID, "quantity_g": 5,
+			"reason": "overbought", "date_label": "best_before", "package": "unopened",
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("manual waste before product expiry: status=%d body=%v", status, autoManualWaste)
+	}
+	autoManualWasteID, _ := autoManualWaste["id"].(string)
+	if _, err := s.pool.Exec(context.Background(), `
+		UPDATE inventory_items SET best_before_date = '2000-01-01'
+		WHERE id = $1`, autoItemID); err != nil {
+		t.Fatalf("force product expiry: %v", err)
+	}
+
+	status, raw := s.doRaw(t, http.MethodGet, "/api/v1/inventory", token, nil)
+	var openInventory []map[string]any
+	if status != http.StatusOK || json.Unmarshal(raw, &openInventory) != nil || len(openInventory) != 0 {
+		t.Fatalf("open inventory after expiry: status=%d body=%s", status, raw)
+	}
+	status, _ = s.doJSON(t, http.MethodGet, "/api/v1/meals/"+autoMealID, token, nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("auto-expired provisional meal survived: got %d, want 404", status)
+	}
+	status, body = s.doJSON(t, http.MethodPut, "/api/v1/waste-events/"+autoManualWasteID, token,
+		map[string]any{
+			"inventory_item_id": autoItemID, "quantity_g": 2,
+			"reason": "overbought", "date_label": "best_before", "package": "unopened",
+		})
+	if status != http.StatusConflict {
+		t.Fatalf("reduce manual waste after expiry: status=%d body=%v", status, body)
+	}
+	status, body = s.doJSON(t, http.MethodDelete, "/api/v1/waste-events/"+autoManualWasteID, token, nil)
+	if status != http.StatusConflict {
+		t.Fatalf("delete manual waste after expiry: status=%d body=%v", status, body)
+	}
+	status, raw = s.doRaw(t, http.MethodGet, "/api/v1/waste-events", token, nil)
+	var wasteEvents []map[string]any
+	if status != http.StatusOK || json.Unmarshal(raw, &wasteEvents) != nil || len(wasteEvents) != 5 {
+		t.Fatalf("waste events after expiry: status=%d body=%s", status, raw)
+	}
+	status, raw = s.doRaw(t, http.MethodGet, "/api/v1/waste-events", token, nil)
+	var secondRead []map[string]any
+	if status != http.StatusOK || json.Unmarshal(raw, &secondRead) != nil || len(secondRead) != len(wasteEvents) {
+		t.Fatalf("idempotent expiry read: status=%d body=%s", status, raw)
 	}
 }
 

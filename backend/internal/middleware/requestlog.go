@@ -11,8 +11,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/example/food-app/backend/internal/logging"
-	"github.com/example/food-app/backend/internal/telemetry"
+	"github.com/sk-san/smart-food-manager/backend/internal/logging"
+	"github.com/sk-san/smart-food-manager/backend/internal/telemetry"
 )
 
 // RequestLogger emits the blueprint's HTTP lifecycle events

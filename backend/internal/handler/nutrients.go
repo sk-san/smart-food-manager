@@ -93,6 +93,8 @@ func (h *NutrientHandler) Advice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var result adviceResponse
+
 	text, err := h.advisor.GenerateText(r.Context(), adviceSystemPrompt, req.Prompt)
 	if err != nil {
 		// Detail is captured in the dependency logs/metrics; keep the client
@@ -100,5 +102,14 @@ func (h *NutrientHandler) Advice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "advice generation failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, adviceResponse{Advice: text})
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		writeError(w, http.StatusBadGateway, "could not parse advice")
+		return
+	}
+	if strings.TrimSpace(result.Advice) == "" {
+		writeError(w, http.StatusBadGateway, "advice result is empty")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }

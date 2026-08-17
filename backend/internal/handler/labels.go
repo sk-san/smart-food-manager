@@ -10,9 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/example/food-app/backend/internal/logging"
+	"github.com/sk-san/smart-food-manager/backend/internal/logging"
+	"github.com/sk-san/smart-food-manager/backend/internal/middleware"
 )
 
 // maxLabelImageBytes caps the size of an uploaded label image.
@@ -194,14 +196,16 @@ func (h *LabelHandler) persist(ctx context.Context, ext extraction, byCode map[s
 	}
 	defer tx.Rollback(ctx)
 
-	// TODO: set created_by once the demo auth issues real user UUIDs; the
-	// current token subject is an email, so created_by is left NULL.
+	var createdBy any
+	if claims, ok := middleware.ClaimsFromContext(ctx); ok && uuid.Validate(claims.UserID) == nil {
+		createdBy = claims.UserID
+	}
 	var foodID string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO foods (name, food_type, category, is_global)
-		 VALUES ($1, $2, $3, false)
+		`INSERT INTO foods (name, food_type, category, is_global, created_by)
+		 VALUES ($1, $2, $3, false, $4)
 		 RETURNING id`,
-		ext.Name, normalizeFoodType(ext.FoodType), nullString(ext.Category),
+		ext.Name, normalizeFoodType(ext.FoodType), nullString(ext.Category), createdBy,
 	).Scan(&foodID); err != nil {
 		return "", 0, nil, err
 	}

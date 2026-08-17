@@ -1,5 +1,7 @@
 # Backend
 /backend/bin/
+# `go build ./cmd/api` with no -o drops the executable here.
+/backend/api
 *.test
 
 # Frontend

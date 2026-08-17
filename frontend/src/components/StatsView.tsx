@@ -14,7 +14,7 @@ import {
   ReferenceLine
 } from 'recharts';
 import { FoodEntry, DailyGoal } from '../types/nutrition';
-import { TrendingUp, Zap, Award, Flame, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { TrendingUp, Zap, Award, Flame } from 'lucide-react';
 
 interface StatsViewProps {
   entries: FoodEntry[];
@@ -29,20 +29,38 @@ const TOOLTIP_STYLE = {
   color: 'var(--color-text)',
 };
 
+const DAY_MS = 86_400_000;
+
+const localDayKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
 const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
-  // Generate mock data mixed with real data for better visualization
   const weeklyData = useMemo(() => {
-    // In a real app, we would aggregate real entries.
-    // Here we will use mock data for previous days and real data for today/recent.
-    return [
-      { day: 'Mon', calories: 2150, protein: 140, fat: 65, carbs: 220 },
-      { day: 'Tue', calories: 1850, protein: 125, fat: 55, carbs: 190 },
-      { day: 'Wed', calories: 2400, protein: 160, fat: 80, carbs: 260 },
-      { day: 'Thu', calories: 1950, protein: 135, fat: 60, carbs: 210 },
-      { day: 'Fri', calories: 2250, protein: 150, fat: 70, carbs: 240 },
-      { day: 'Sat', calories: 2600, protein: 110, fat: 95, carbs: 300 },
-      { day: 'Sun', calories: entries.reduce((acc, e) => acc + e.calories, 0) || 1900, protein: 130, fat: 60, carbs: 200 },
-    ];
+    const today = new Date();
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (6 - index));
+      return {
+        key: localDayKey(date),
+        day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        dateLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        calories: 0,
+        protein: 0,
+        fat: 0,
+        carbs: 0,
+        itemCount: 0,
+      };
+    });
+    const byDay = new Map(days.map((day) => [day.key, day]));
+    entries.forEach((entry) => {
+      const bucket = byDay.get(localDayKey(new Date(entry.timestamp)));
+      if (!bucket) return;
+      bucket.calories += entry.calories;
+      bucket.protein += entry.protein;
+      bucket.fat += entry.fat;
+      bucket.carbs += entry.carbs;
+      bucket.itemCount += 1;
+    });
+    return days;
   }, [entries]);
 
   const macroDistribution = useMemo(() => {
@@ -57,7 +75,22 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
     ];
   }, [weeklyData]);
 
-  const averageCalories = Math.round(weeklyData.reduce((acc, d) => acc + d.calories, 0) / weeklyData.length);
+  const loggedDays = weeklyData.filter((day) => day.itemCount > 0);
+  const averageCalories = loggedDays.length
+    ? Math.round(loggedDays.reduce((total, day) => total + day.calories, 0) / loggedDays.length)
+    : 0;
+  const goalDays = weeklyData.filter(
+    (day) => day.itemCount > 0 && day.calories >= goals.calories * 0.8 && day.calories <= goals.calories * 1.2
+  ).length;
+  const weeklyEntries = entries.filter((entry) => entry.timestamp >= Date.now() - 7 * DAY_MS);
+  const highestDay = weeklyData.reduce<(typeof weeklyData)[number] | null>(
+    (highest, day) => (!highest || day.calories > highest.calories ? day : highest),
+    null
+  );
+  const topProteinEntry = weeklyEntries.reduce<FoodEntry | null>(
+    (top, entry) => (!top || entry.protein > top.protein ? entry : top),
+    null
+  );
 
   const weekRange = useMemo(() => {
     const end = new Date();
@@ -87,9 +120,7 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
               <span className="font-display text-[22px] text-ink tabular-nums">
                 {averageCalories.toLocaleString('en-US')}
               </span>
-              <span className="tag tag-accent-2 flex items-center gap-0.5">
-                <ArrowUpRight size={11} strokeWidth={2.75} /> 2%
-              </span>
+              <span className="tag tag-neutral">logged days</span>
             </div>
           </div>
         </div>
@@ -99,10 +130,10 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
             <Award size={21} strokeWidth={2.5} />
           </div>
           <div>
-            <p className="text-[13px] text-neutral-600">Goal streak</p>
+            <p className="text-[13px] text-neutral-600">Days near goal</p>
             <div className="flex items-center gap-2">
-              <span className="font-display text-[22px] text-ink tabular-nums">5 days</span>
-              <span className="tag tag-neutral">best: 12</span>
+              <span className="font-display text-[22px] text-ink tabular-nums">{goalDays} days</span>
+              <span className="tag tag-neutral">of 7</span>
             </div>
           </div>
         </div>
@@ -112,12 +143,10 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
             <TrendingUp size={21} strokeWidth={2.5} />
           </div>
           <div>
-            <p className="text-[13px] text-neutral-600">Weight trend</p>
+            <p className="text-[13px] text-neutral-600">Items logged</p>
             <div className="flex items-center gap-2">
-              <span className="font-display text-[22px] text-ink tabular-nums">-0.5 kg</span>
-              <span className="tag tag-accent-2 flex items-center gap-0.5">
-                <ArrowDownRight size={11} strokeWidth={2.75} />
-              </span>
+              <span className="font-display text-[22px] text-ink tabular-nums">{weeklyEntries.length}</span>
+              <span className="tag tag-accent-2">this week</span>
             </div>
           </div>
         </div>
@@ -223,10 +252,14 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
               </div>
               <div>
                 <p className="text-sm font-semibold text-ink">Highest calorie day</p>
-                <p className="text-[13px] text-neutral-600">Saturday</p>
+                <p className="text-[13px] text-neutral-600">
+                  {highestDay?.itemCount ? `${highestDay.day}, ${highestDay.dateLabel}` : 'No entries yet'}
+                </p>
               </div>
             </div>
-            <span className="text-[15px] font-semibold text-ink tabular-nums">2,600 kcal</span>
+            <span className="text-[15px] font-semibold text-ink tabular-nums">
+              {Math.round(highestDay?.calories ?? 0).toLocaleString('en-US')} kcal
+            </span>
           </div>
 
           <div className="flex items-center justify-between rounded-3xl bg-surface p-4">
@@ -236,10 +269,12 @@ const StatsView: React.FC<StatsViewProps> = ({ entries, goals }) => {
               </div>
               <div>
                 <p className="text-sm font-semibold text-ink">Top nutrient source</p>
-                <p className="text-[13px] text-neutral-600">Grilled Chicken Salad</p>
+                <p className="text-[13px] text-neutral-600">{topProteinEntry?.name ?? 'No entries yet'}</p>
               </div>
             </div>
-            <span className="text-[15px] font-semibold text-ink tabular-nums">45g protein</span>
+            <span className="text-[15px] font-semibold text-ink tabular-nums">
+              {Math.round(topProteinEntry?.protein ?? 0)}g protein
+            </span>
           </div>
         </div>
       </div>
