@@ -103,8 +103,12 @@ GEMINI_API_KEY=
 > `DB_HOST_PORT=5432`) in `.env` so the two agree.
 
 Other backend variables (all optional, with defaults): `PORT`, `JWT_EXPIRY_MINUTES`,
-`RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`, `ALLOWED_ORIGIN`, `SERVICE_NAME`, `SERVICE_VERSION`,
-`DEPLOYMENT_ENVIRONMENT`, `GEMINI_BASE_URL`, `GEMINI_MODEL`, `GEMINI_TIMEOUT_SECONDS`.
+`RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`, `ALLOWED_ORIGIN`, `GUEST_AI_DAILY_LIMIT`, `SERVICE_NAME`,
+`SERVICE_VERSION`, `DEPLOYMENT_ENVIRONMENT`, `GEMINI_BASE_URL`, `GEMINI_MODEL`,
+`GEMINI_TIMEOUT_SECONDS`.
+`GUEST_AI_DAILY_LIMIT` (default `3`) caps how many AI analyses a visitor without an account may
+run per UTC day, counted per client IP; `-1` removes the cap and `0` closes AI analysis to guests
+entirely. Signed-in callers are never capped.
 The frontend accepts `VITE_API_BASE_URL` (empty in dev — see the Vite proxy) and `VITE_APP_VERSION`.
 
 ## Quickstart
@@ -221,7 +225,8 @@ missing key is reported as `502` by those handlers.
 | POST   | `/api/v1/auth/login`       | none             | Verifies an active database user and issues a JWT |
 | GET    | `/api/v1/nutrients`        | none             | Lists the active nutrient master                  |
 | POST   | `/api/v1/telemetry/logs`   | optional Bearer  | Frontend telemetry sink; a token binds events to the user |
-| POST   | `/api/v1/nutrition/analyze`| optional Bearer  | AI food analysis from text or an image             |
+| POST   | `/api/v1/nutrition/analyze`| optional Bearer  | AI food analysis from text or an image; guests get `GUEST_AI_DAILY_LIMIT` a day |
+| GET    | `/api/v1/nutrition/quota`  | optional Bearer  | Remaining guest AI analyses; reading it spends none |
 | GET    | `/api/v1/me`               | Bearer           | Returns the caller's claims                       |
 | GET    | `/api/v1/inventory`        | Bearer           | Lists active pantry stock; reconciles expiry      |
 | POST   | `/api/v1/inventory/scans`  | Bearer           | Atomically saves a scan to pantry and nutrition   |

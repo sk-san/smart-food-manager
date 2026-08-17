@@ -40,6 +40,7 @@ unset, the frontend uses same-origin relative URLs.
 | `GET` | `/api/v1/nutrients` | None | `200` | No |
 | `POST` | `/api/v1/telemetry/logs` | Optional Bearer token | `202` | Yes |
 | `POST` | `/api/v1/nutrition/analyze` | Optional Bearer token | `200` | Yes |
+| `GET` | `/api/v1/nutrition/quota` | Optional Bearer token | `200` | Yes |
 | `GET` | `/api/v1/me` | Bearer token | `200` | Yes |
 | `GET/POST` | `/api/v1/meals` | Bearer token | `200` / `201` | Yes |
 | `GET/PUT/DELETE` | `/api/v1/meals/{mealID}` | Bearer token | `200` / `204` | Partly |
@@ -123,7 +124,8 @@ Most handler errors are JSON:
 }
 ```
 
-Authentication, authorization, and rate-limit middleware use plain text:
+Authentication, authorization, and the shared rate limiter use plain text
+(the guest AI quota in §3.6 is the one middleware that answers in JSON):
 
 ```text
 missing bearer token
@@ -143,6 +145,7 @@ Every backend response receives these CORS headers:
 Access-Control-Allow-Origin: <ALLOWED_ORIGIN>
 Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
 Access-Control-Allow-Headers: Authorization, Content-Type, X-Session-Id, traceparent
+Access-Control-Expose-Headers: X-AI-Quota-Limit, X-AI-Quota-Remaining, X-AI-Quota-Reset
 ```
 
 `ALLOWED_ORIGIN` defaults to `http://localhost:5173`. Preflight `OPTIONS`
@@ -161,6 +164,45 @@ client IP:
 The implementation trusts the first value in `X-Forwarded-For` when the
 header is present. A trusted reverse proxy should replace client-supplied
 forwarding headers.
+
+### 3.6 Guest AI quota
+
+`POST /api/v1/nutrition/analyze` additionally caps callers **without** a valid
+token — the frontend's "continue as guest" path — because every analysis costs
+a Gemini call:
+
+- Default allowance: 3 analyses (`GUEST_AI_DAILY_LIMIT`); `-1` disables the
+  cap, `0` closes the route to guests
+- Key: client IP, so visitors behind one NAT share an allowance
+- Window: UTC calendar day; counters reset at UTC midnight
+- Exemption: a request with a valid token is never counted or capped
+- Refund: an analysis that does not return `2xx` (rejected payload, provider
+  failure) costs nothing
+- Scope: one process; counters are not shared across backend replicas
+
+Guest responses from the route carry the remaining allowance:
+
+```http
+X-AI-Quota-Limit: 3
+X-AI-Quota-Remaining: 2
+X-AI-Quota-Reset: 2026-08-18T00:00:00Z
+```
+
+Those three headers are listed in `Access-Control-Expose-Headers`, so a
+browser client can read them. Rejection is `429` with a JSON body — unlike the
+plain-text shared rate limiter, which also answers `429`:
+
+```json
+{
+  "error": "guest AI analyses are limited to 3 per day; sign in to continue",
+  "code": "guest_ai_daily_limit",
+  "limit": 3,
+  "remaining": 0,
+  "resetAt": "2026-08-18T00:00:00Z"
+}
+```
+
+Clients should branch on `code`, not on the status alone.
 
 ## 4. Endpoint contracts
 
@@ -470,6 +512,7 @@ Errors:
 | `400` | `{"error":"type must be \"text\" or \"image\""}` |
 | `413` | Request body exceeds 9 MiB or decoded image exceeds 6 MiB |
 | `415` | Declared/detected image content is unsupported or mismatched |
+| `429` | `{"error":"guest AI analyses are limited to 3 per day","code":"guest_ai_daily_limit",…}` |
 | `502` | `{"error":"analysis failed"}` |
 | `502` | `{"error":"could not parse analysis result"}` |
 | `503` | `{"error":"analyzer not configured"}` |
@@ -477,6 +520,41 @@ Errors:
 In normal server wiring the analyzer object always exists. If
 `GEMINI_API_KEY` is unset, the Gemini client fails the call and this endpoint
 returns `502 analysis failed`, not the `503` reserved for a nil analyzer.
+
+The `429` applies only to callers without a valid token and is described in
+§3.6; a failed analysis does not consume the guest's allowance.
+
+#### `GET /api/v1/nutrition/quota`
+
+Reports the caller's remaining guest AI analyses without spending one, so the
+frontend can show the allowance before a scan is attempted. Authentication is
+optional.
+
+Success — `200 OK` (guest):
+
+```json
+{
+  "unlimited": false,
+  "limit": 3,
+  "used": 1,
+  "remaining": 2,
+  "resetAt": "2026-08-18T00:00:00Z"
+}
+```
+
+Success — `200 OK` (valid token, or `GUEST_AI_DAILY_LIMIT` below zero):
+
+```json
+{
+  "unlimited": true,
+  "limit": 0,
+  "used": 0,
+  "remaining": 0
+}
+```
+
+When `unlimited` is `true` the numeric fields carry no meaning and `resetAt`
+is absent. The response repeats the allowance in the `X-AI-Quota-*` headers.
 
 ### 4.6 Current user claims
 
@@ -834,8 +912,12 @@ Behavior:
   `api_request_failed` telemetry events.
 - Parses JSON for successful responses and handles `204 No Content` without a
   response body.
-- On a non-2xx response, discards the response body and throws an error such
-  as `POST /api/v1/auth/login failed: 401`.
+- On a non-2xx response, throws `ApiError` — for example
+  `POST /api/v1/auth/login failed: 401`. A JSON error envelope is parsed onto
+  `error.body`, and its `code` is exposed as `error.code`, so callers can tell
+  errors that share a status apart (a spent guest AI quota versus the shared
+  rate limiter, both `429`). A plain-text or malformed body leaves `body`
+  empty.
 - Does not retry, refresh an expired token, or automatically log the user out
   after `401`.
 
@@ -845,7 +927,8 @@ Behavior:
 | --- | --- | --- | --- |
 | `App` | `GET /api/v1/me` | Startup with a persisted token | Clears the token on `401`; preserves it and presents a retry screen on network or server failure. |
 | `LoginView` | `POST /api/v1/auth/login` | Sign-in form submit | Shows “Invalid email or password” for every error type. |
-| `nutritionService.analyzeFoodInput` | `POST /api/v1/nutrition/analyze` | Analyze text or a food photo | Text falls back to a deterministic estimate; image failures stay explicit. |
+| `nutritionService.analyzeFoodInput` | `POST /api/v1/nutrition/analyze` | Analyze text or a food photo | Text falls back to a deterministic estimate; image failures stay explicit. A spent guest quota throws `AiQuotaExceededError` in both modes. |
+| `nutritionService.getAiQuota` | `GET /api/v1/nutrition/quota` | `AddEntryModal` opens for a guest | Reports the caller as unlimited, leaving the cap to the backend. |
 | `persistenceService` | `GET /api/v1/inventory` | Authenticated startup and expiry reconciliation | Loads unresolved pantry stock before the dependent meal and waste ledgers. |
 | `persistenceService` | `POST /api/v1/inventory/scans` | Save a reviewed food/product/ingredient scan | Saves pantry and provisional intake atomically. |
 | `persistenceService` | `POST /api/v1/inventory/{itemID}/consume` | Save consumed quantity and optional remainder waste | Upserts/deletes the returned meal and removes resolved stock locally. |
@@ -874,6 +957,10 @@ If a **text** `/api/v1/nutrition/analyze` call fails, including rate limiting,
 a missing Gemini key, or a network failure, the frontend returns one local
 item. An image failure is surfaced to the user because a generic estimate
 would falsely imply that the photo was analyzed.
+
+An exhausted guest quota (`429` with `code: "guest_ai_daily_limit"`) is the
+exception: it raises `AiQuotaExceededError` for text as well, since a local
+estimate would hide the fact that no analysis ran.
 
 ```json
 {

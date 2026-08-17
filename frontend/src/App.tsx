@@ -975,7 +975,12 @@ function App() {
         />
       </div>
 
-      <AddEntryModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onAdd={handleAddEntries} />
+      <AddEntryModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onAdd={handleAddEntries}
+        isGuest={isGuest}
+      />
 
       {/* Mobile tab bar */}
       <nav
