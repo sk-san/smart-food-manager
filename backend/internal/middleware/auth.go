@@ -8,7 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/example/food-app/backend/internal/logging"
+	"github.com/sk-san/smart-food-manager/backend/internal/logging"
 )
 
 type contextKey string
@@ -55,9 +55,7 @@ func Authenticator(secret string) func(http.Handler) http.Handler {
 				return
 			}
 			ctx := context.WithValue(r.Context(), claimsContextKey, claims)
-			// Publish a pseudonymous user ID for request logs. The demo
-			// token subject is an email address, so hash it; switch to the
-			// raw internal ID once real user accounts exist.
+			// Publish only a pseudonymous form of the internal user ID in logs.
 			logging.SetUserID(ctx, logging.HashIdentifier(claims.UserID))
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

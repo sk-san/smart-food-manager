@@ -1,10 +1,21 @@
 import React, { useState } from 'react';
-import { Clock3, Leaf, LineChart, Rows3 } from 'lucide-react';
+import { Droplets, Leaf, LineChart, Loader2, Plus, Rows3, Trash2, Trees, Utensils } from 'lucide-react';
 import PlannedAction from './PlannedAction';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import { SEED_LARDER, EAT_SOON_DAYS, ZERO_WASTE_STREAK_DAYS, LarderItem } from '../types/pantry';
+import { EAT_SOON_DAYS, LarderItem, NewLarderItem, WasteEvent } from '../types/pantry';
 
 interface PantryViewProps {
+  items: LarderItem[];
+  wasteEvents: WasteEvent[];
+  isLoading: boolean;
+  onAddItem: (item: NewLarderItem) => void | Promise<void>;
+  onConsumeItem: (
+    item: LarderItem,
+    quantity: number,
+    discardRemaining: boolean,
+    wasteReason: string,
+  ) => void | Promise<void>;
+  onWasteItem: (item: LarderItem, quantity: number, reason: string) => void | Promise<void>;
   onHoverStart: () => void;
   onHoverEnd: () => void;
 }
@@ -67,10 +78,15 @@ const plainDaysLeft = (daysLeft: number) => {
   return `${daysLeft} days left`;
 };
 
-const LarderRow: React.FC<{ item: LarderItem }> = ({ item }) => {
+const LarderRow: React.FC<{
+  item: LarderItem;
+  onConsume: (item: LarderItem) => void;
+  onWaste: (item: LarderItem) => void;
+}> = ({ item, onConsume, onWaste }) => {
   const urgent = item.daysLeft <= EAT_SOON_DAYS;
+  const remaining = (item.quantityPurchased ?? 0) - (item.quantityConsumed ?? 0) - (item.quantityWasted ?? 0);
   return (
-    <li className="flex items-center gap-3.5 py-3">
+    <li className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3.5 gap-y-2 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
       <span
         className="grid h-11 w-11 flex-none place-items-center rounded-full bg-neutral-100 text-[15px] font-semibold text-ink"
         style={{ border: `2.5px solid ${urgencyBorder(item.daysLeft)}` }}
@@ -84,20 +100,71 @@ const LarderRow: React.FC<{ item: LarderItem }> = ({ item }) => {
         <span className="block text-[13px] text-neutral-700 tabular-nums">
           {plainDaysLeft(item.daysLeft)} · turns {turnsOn(item.daysLeft)}
         </span>
+        {item.quantityPurchased !== undefined && (
+          <span className="block text-xs text-neutral-600 tabular-nums">
+            {remaining.toLocaleString('en-US')} g remaining · {item.storage}
+            {item.sourceType ? ` · ${item.sourceType}` : ''}
+            {item.expiryIsEstimated ? ' · estimated expiry' : ''}
+          </span>
+        )}
       </span>
-      <span className={`tag flex-none tabular-nums ${urgent ? 'tag-accent font-semibold' : 'tag-neutral'}`}>
-        {daysLabel(item.daysLeft)}
+      <span className="col-span-2 flex min-w-0 items-center justify-end gap-1.5 sm:col-span-1">
+        <span className={`tag flex-none tabular-nums ${urgent ? 'tag-accent font-semibold' : 'tag-neutral'}`}>
+          {daysLabel(item.daysLeft)}
+        </span>
+        {item.quantityPurchased !== undefined && (
+          <>
+            <button
+              type="button"
+              onClick={() => onConsume(item)}
+              aria-label={`Record consumption for ${item.name}`}
+              className="grid h-10 w-10 flex-none place-items-center rounded-full text-neutral-600 transition-colors hover:bg-accent-2-200 hover:text-accent-2-900"
+            >
+              <Utensils size={16} strokeWidth={2.5} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onWaste(item)}
+              aria-label={`Log waste for ${item.name}`}
+              className="grid h-10 w-10 flex-none place-items-center rounded-full text-neutral-600 transition-colors hover:bg-accent-100 hover:text-accent-800"
+            >
+              <Trash2 size={16} strokeWidth={2.5} aria-hidden="true" />
+            </button>
+          </>
+        )}
       </span>
     </li>
   );
 };
 
-const PantryView: React.FC<PantryViewProps> = ({ onHoverStart, onHoverEnd }) => {
-  const items = SEED_LARDER;
+const PantryView: React.FC<PantryViewProps> = ({
+  items,
+  wasteEvents,
+  isLoading,
+  onAddItem,
+  onConsumeItem,
+  onWasteItem,
+  onHoverStart,
+  onHoverEnd,
+}) => {
   const isMobile = useIsMobile();
   // The timeline is a wide canvas by construction, so it is offered only where
   // there is width for it. On a phone the list is the whole story.
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [addName, setAddName] = useState('');
+  const [addQuantity, setAddQuantity] = useState('');
+  const [addExpiry, setAddExpiry] = useState('');
+  const [addStorage, setAddStorage] = useState<NewLarderItem['storage']>('fridge');
+  const [consumeItem, setConsumeItem] = useState<LarderItem | null>(null);
+  const [consumeQuantity, setConsumeQuantity] = useState('');
+  const [discardRemaining, setDiscardRemaining] = useState(false);
+  const [consumeWasteReason, setConsumeWasteReason] = useState('leftover_not_eaten');
+  const [wasteItem, setWasteItem] = useState<LarderItem | null>(null);
+  const [wasteQuantity, setWasteQuantity] = useState('');
+  const [wasteReason, setWasteReason] = useState('spoiled_visible');
+  const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const timelineVisible = showTimeline && !isMobile;
 
   const byExpiry = [...items].sort((a, b) => a.daysLeft - b.daysLeft);
@@ -125,43 +192,152 @@ const PantryView: React.FC<PantryViewProps> = ({ onHoverStart, onHoverEnd }) => 
     };
   });
 
-  const prevMonth = new Date(new Date().setDate(0)).toLocaleDateString('en-US', { month: 'long' });
+  const resetForms = () => {
+    setShowAddItem(false);
+    setConsumeItem(null);
+    setWasteItem(null);
+    setFormError(null);
+  };
+
+  const handleAddItem = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const quantity = Number(addQuantity);
+    if (!addName.trim() || !Number.isFinite(quantity) || quantity <= 0) {
+      setFormError('Enter a name and a quantity greater than zero.');
+      return;
+    }
+    setIsSaving(true);
+    setFormError(null);
+    try {
+      await onAddItem({ name: addName.trim(), quantityPurchased: quantity, expiryDate: addExpiry, storage: addStorage });
+      setAddName('');
+      setAddQuantity('');
+      setAddExpiry('');
+      resetForms();
+    } catch (error) {
+      console.error(error);
+      setFormError('The item could not be saved. Check your connection and try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openWasteForm = (item: LarderItem) => {
+    const remaining = (item.quantityPurchased ?? 0) - (item.quantityConsumed ?? 0) - (item.quantityWasted ?? 0);
+    setWasteItem(item);
+    setWasteQuantity(String(Math.min(remaining, 100)));
+    setWasteReason('spoiled_visible');
+    setConsumeItem(null);
+    setShowAddItem(false);
+    setFormError(null);
+  };
+
+  const openConsumeForm = (item: LarderItem) => {
+    const remaining = (item.quantityPurchased ?? 0) -
+      (item.quantityConsumed ?? 0) - (item.quantityWasted ?? 0);
+    setConsumeItem(item);
+    setConsumeQuantity(String(Math.min(remaining, 100)));
+    setDiscardRemaining(item.sourceType === 'food' || item.sourceType === 'product');
+    setConsumeWasteReason(item.sourceType === 'ingredient' ? 'other' : 'leftover_not_eaten');
+    setWasteItem(null);
+    setShowAddItem(false);
+    setFormError(null);
+  };
+
+  const handleConsumeItem = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!consumeItem) return;
+    const quantity = Number(consumeQuantity);
+    const remaining = (consumeItem.quantityPurchased ?? 0) -
+      (consumeItem.quantityConsumed ?? 0) - (consumeItem.quantityWasted ?? 0);
+    if (!Number.isFinite(quantity) || quantity < 0 || quantity > remaining || (quantity === 0 && !discardRemaining)) {
+      setFormError(`Enter a consumed quantity from 0 to ${remaining.toLocaleString('en-US')} g. Zero is only valid when discarding the remainder.`);
+      return;
+    }
+    setIsSaving(true);
+    setFormError(null);
+    try {
+      await onConsumeItem(consumeItem, quantity, discardRemaining, consumeWasteReason);
+      resetForms();
+    } catch (error) {
+      console.error(error);
+      setFormError('The consumption could not be saved. Check your connection and try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleWasteItem = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!wasteItem) return;
+    const quantity = Number(wasteQuantity);
+    const remaining = (wasteItem.quantityPurchased ?? 0) -
+      (wasteItem.quantityConsumed ?? 0) - (wasteItem.quantityWasted ?? 0);
+    if (!Number.isFinite(quantity) || quantity <= 0 || quantity > remaining) {
+      setFormError(`Enter a quantity from 1 to ${remaining.toLocaleString('en-US')} g.`);
+      return;
+    }
+    setIsSaving(true);
+    setFormError(null);
+    try {
+      await onWasteItem(wasteItem, quantity, wasteReason);
+      resetForms();
+    } catch (error) {
+      console.error(error);
+      setFormError('The waste event could not be saved. Check your connection and try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const totalWaste = wasteEvents.reduce((total, event) => total + event.quantity, 0);
+  const totalCO2e = wasteEvents.reduce((total, event) => total + event.impactKgCO2e, 0);
+  const totalVirtualWater = wasteEvents.reduce((total, event) => total + event.virtualWaterL, 0);
+  const totalTreeEquivalents = wasteEvents.reduce((total, event) => total + event.treeEquivalents, 0);
+  const latestWasteAt = wasteEvents.reduce((latest, event) => Math.max(latest, event.wastedAt), 0);
+  const zeroWasteDays = latestWasteAt ? Math.max(0, Math.floor((Date.now() - latestWasteAt) / 86_400_000)) : null;
 
   const impact = [
     {
       key: 'waste',
-      figure: '−64%',
-      caption: `food waste vs. ${prevMonth}`,
+      figure: `${totalWaste.toLocaleString('en-US', { maximumFractionDigits: 1 })} g`,
+      caption: 'food waste recorded',
       visual: (
-        <svg width="90" height="38" viewBox="0 0 90 38" aria-hidden="true" className="flex-none">
-          <polyline
-            points="2,30 15,26 28,28 41,18 54,20 67,10 88,6"
-            fill="none"
-            stroke="var(--color-accent-2-600)"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ),
-    },
-    {
-      key: 'streak',
-      figure: `${ZERO_WASTE_STREAK_DAYS} days`,
-      caption: 'zero-waste streak',
-      visual: (
-        <div className="grid h-11 w-11 flex-none place-items-center rounded-full bg-accent-2-200">
-          <Clock3 size={21} strokeWidth={2.75} className="text-accent-2-800" />
+        <div className="grid h-11 w-11 flex-none place-items-center rounded-full bg-neutral-200">
+          <Trash2 size={21} strokeWidth={2.75} className="text-neutral-700" aria-hidden="true" />
         </div>
       ),
     },
     {
       key: 'co2',
-      figure: '4.1 kg',
-      caption: 'CO₂e avoided this month',
+      figure: `${totalCO2e.toLocaleString('en-US', { maximumFractionDigits: 2 })} kg`,
+      caption: 'estimated CO₂e from waste',
       visual: (
         <div className="grid h-11 w-11 flex-none place-items-center rounded-full bg-accent-200">
-          <Leaf size={21} strokeWidth={2.75} className="text-accent-800" />
+          <Leaf size={21} strokeWidth={2.75} className="text-accent-800" aria-hidden="true" />
+        </div>
+      ),
+    },
+    {
+      key: 'water',
+      figure: `${totalVirtualWater.toLocaleString('en-US', { maximumFractionDigits: 0 })} L`,
+      caption: 'estimated virtual water',
+      visual: (
+        <div className="grid h-11 w-11 flex-none place-items-center rounded-full bg-accent-2-200">
+          <Droplets size={21} strokeWidth={2.75} className="text-accent-2-800" aria-hidden="true" />
+        </div>
+      ),
+    },
+    {
+      key: 'trees',
+      figure: totalTreeEquivalents.toLocaleString('en-US', {
+        minimumFractionDigits: totalTreeEquivalents > 0 && totalTreeEquivalents < 0.01 ? 3 : 0,
+        maximumFractionDigits: 3,
+      }),
+      caption: 'urban tree-year equivalents',
+      visual: (
+        <div className="grid h-11 w-11 flex-none place-items-center rounded-full bg-accent-2-200">
+          <Trees size={21} strokeWidth={2.75} className="text-accent-2-800" aria-hidden="true" />
         </div>
       ),
     },
@@ -174,17 +350,194 @@ const PantryView: React.FC<PantryViewProps> = ({ onHoverStart, onHoverEnd }) => 
         <header className="mr-auto">
           <h1 className="text-4xl text-ink md:text-[44px]">The larder</h1>
           <p className="mt-1.5 text-sm text-neutral-700 tabular-nums">
-            {items.length} items tracked · nothing wasted in {ZERO_WASTE_STREAK_DAYS} days
+            {isLoading
+              ? 'Loading your saved larder…'
+              : `${items.length} items tracked · ${zeroWasteDays === null ? 'no waste logged yet' : `nothing wasted in ${zeroWasteDays} days`}`}
           </p>
         </header>
         <span className="tag tag-accent px-3.5 py-1.5 tabular-nums">{eatSoon.length} to eat soon</span>
-        <span className="tag tag-accent-2 hidden px-3.5 py-1.5 sm:inline-flex">€23 saved this month</span>
-        <PlannedAction
-          id="pantry-add-item"
-          label="Add item"
-          note="Larder contents are still seed data — editing arrives with pantry storage."
-        />
+        <button
+          type="button"
+          onClick={() => {
+            setShowAddItem((current) => !current);
+            setConsumeItem(null);
+            setWasteItem(null);
+            setFormError(null);
+          }}
+          className="btn btn-primary"
+        >
+          <Plus size={16} strokeWidth={2.5} />
+          Add item
+        </button>
       </div>
+
+      {showAddItem && (
+        <form onSubmit={handleAddItem} className="panel grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="lg:col-span-2">
+            <label htmlFor="pantry-item-name" className="field-label">Item name</label>
+            <input
+              id="pantry-item-name"
+              className="input"
+              value={addName}
+              onChange={(event) => setAddName(event.target.value)}
+              placeholder="Baby spinach"
+              autoFocus
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="pantry-item-quantity" className="field-label">Quantity (g)</label>
+            <input
+              id="pantry-item-quantity"
+              type="number"
+              min="0.01"
+              step="0.01"
+              className="input tabular-nums"
+              value={addQuantity}
+              onChange={(event) => setAddQuantity(event.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="pantry-item-expiry" className="field-label">Best before</label>
+            <input
+              id="pantry-item-expiry"
+              type="date"
+              className="input tabular-nums"
+              value={addExpiry}
+              onChange={(event) => setAddExpiry(event.target.value)}
+            />
+          </div>
+          <div>
+            <label htmlFor="pantry-item-storage" className="field-label">Storage</label>
+            <select
+              id="pantry-item-storage"
+              className="input"
+              value={addStorage}
+              onChange={(event) => setAddStorage(event.target.value as NewLarderItem['storage'])}
+            >
+              <option value="fridge">Fridge</option>
+              <option value="freezer">Freezer</option>
+              <option value="pantry">Pantry</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          {formError && <p role="alert" className="text-sm font-semibold text-accent-800 sm:col-span-2 lg:col-span-5">{formError}</p>}
+          <div className="flex justify-end gap-2 sm:col-span-2 lg:col-span-5">
+            <button type="button" onClick={resetForms} className="btn btn-secondary">Cancel</button>
+            <button type="submit" disabled={isSaving} className="btn btn-primary">
+              {isSaving && <Loader2 size={16} className="animate-spin" />}
+              {isSaving ? 'Saving…' : 'Save item'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {consumeItem && (
+        <form onSubmit={handleConsumeItem} className="panel grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+          <div>
+            <label htmlFor="consume-quantity" className="field-label">Consumed from {consumeItem.name} (g)</label>
+            <input
+              id="consume-quantity"
+              type="number"
+              min="0"
+              step="0.01"
+              className="input tabular-nums"
+              value={consumeQuantity}
+              onChange={(event) => setConsumeQuantity(event.target.value)}
+              aria-describedby="consume-help"
+              autoFocus
+              required
+            />
+          </div>
+          <div className="min-w-0 rounded-2xl bg-bg px-4 py-3">
+            <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm font-semibold text-ink">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 flex-none accent-[var(--color-accent-700)]"
+                checked={discardRemaining}
+                onChange={(event) => setDiscardRemaining(event.target.checked)}
+              />
+              <span>Discard everything left after this amount</span>
+            </label>
+            <p id="consume-help" className="mt-1 break-words text-xs leading-relaxed text-neutral-700">
+              {consumeItem.sourceType === 'ingredient'
+                ? discardRemaining
+                  ? 'Consumed nutrition will be added; the rest will move to waste.'
+                  : 'Consumed nutrition will be added. The rest stays here until its estimated expiry.'
+                : discardRemaining
+                  ? 'The remaining portion will leave the provisional nutrition total and move to waste.'
+                  : 'The remaining portion stays here. Its nutrition can be added when you consume it later.'}
+            </p>
+          </div>
+          {discardRemaining && (
+            <div className="sm:col-span-2">
+              <label htmlFor="consume-waste-reason" className="field-label">Reason for discarding the remainder</label>
+              <select
+                id="consume-waste-reason"
+                className="input"
+                value={consumeWasteReason}
+                onChange={(event) => setConsumeWasteReason(event.target.value)}
+              >
+                <option value="leftover_not_eaten">Leftover not eaten</option>
+                <option value="spoiled_visible">Visible spoilage</option>
+                <option value="expired_best_before">Past best-before date</option>
+                <option value="expired_use_by">Past use-by date</option>
+                <option value="forgot_item_existed">Forgot it was there</option>
+                <option value="overbought">Bought too much</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          )}
+          {formError && <p role="alert" className="text-sm font-semibold text-accent-800 sm:col-span-2">{formError}</p>}
+          <div className="flex flex-wrap justify-end gap-2 sm:col-span-2">
+            <button type="button" onClick={resetForms} className="btn btn-secondary">Cancel</button>
+            <button type="submit" disabled={isSaving} className="btn btn-primary">
+              {isSaving && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+              {isSaving ? 'Saving…' : 'Save consumption'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {wasteItem && (
+        <form onSubmit={handleWasteItem} className="panel grid grid-cols-1 gap-4 p-5 sm:grid-cols-3">
+          <div>
+            <label htmlFor="waste-quantity" className="field-label">Waste from {wasteItem.name} (g)</label>
+            <input
+              id="waste-quantity"
+              type="number"
+              min="0.01"
+              step="0.01"
+              className="input tabular-nums"
+              value={wasteQuantity}
+              onChange={(event) => setWasteQuantity(event.target.value)}
+              autoFocus
+              required
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label htmlFor="waste-reason" className="field-label">Reason</label>
+            <select id="waste-reason" className="input" value={wasteReason} onChange={(event) => setWasteReason(event.target.value)}>
+              <option value="spoiled_visible">Visible spoilage</option>
+              <option value="expired_best_before">Past best-before date</option>
+              <option value="expired_use_by">Past use-by date</option>
+              <option value="forgot_item_existed">Forgot it was there</option>
+              <option value="overbought">Bought too much</option>
+              <option value="leftover_not_eaten">Leftover not eaten</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          {formError && <p role="alert" className="text-sm font-semibold text-accent-800 sm:col-span-3">{formError}</p>}
+          <div className="flex justify-end gap-2 sm:col-span-3">
+            <button type="button" onClick={resetForms} className="btn btn-secondary">Cancel</button>
+            <button type="submit" disabled={isSaving} className="btn btn-primary">
+              {isSaving && <Loader2 size={16} className="animate-spin" />}
+              {isSaving ? 'Saving…' : 'Log waste'}
+            </button>
+          </div>
+        </form>
+      )}
 
       <section className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[2.1fr_1fr]">
         {/* The larder itself — primary content, so it takes the elevated card. */}
@@ -280,6 +633,12 @@ const PantryView: React.FC<PantryViewProps> = ({ onHoverStart, onHoverEnd }) => 
             </>
           ) : (
             <div className="mt-3 flex flex-col gap-5">
+              {!isLoading && bands.length === 0 && (
+                <div className="rounded-3xl bg-bg px-5 py-10 text-center">
+                  <p className="font-display text-xl text-ink">Your larder is empty.</p>
+                  <p className="mt-1 text-sm text-neutral-700">Add an item to start tracking what should be used first.</p>
+                </div>
+              )}
               {bands.map((band) => (
                 <section key={band.id} aria-labelledby={`larder-band-${band.id}`}>
                   <div className="flex items-baseline justify-between gap-3 border-b border-divider pb-1.5">
@@ -290,7 +649,7 @@ const PantryView: React.FC<PantryViewProps> = ({ onHoverStart, onHoverEnd }) => 
                   </div>
                   <ul className="divide-y divide-divider">
                     {band.items.map((item) => (
-                      <LarderRow key={item.id} item={item} />
+                      <LarderRow key={item.id} item={item} onConsume={openConsumeForm} onWaste={openWasteForm} />
                     ))}
                   </ul>
                 </section>
@@ -301,7 +660,7 @@ const PantryView: React.FC<PantryViewProps> = ({ onHoverStart, onHoverEnd }) => 
 
         {/* Tonight's suggestion — the one action on this screen, so it keeps a
             filled treatment of its own. */}
-        <div className="flex flex-col gap-1.5 rounded-card bg-accent-2-200 px-6 py-5">
+        {eatSoon.length > 0 && <div className="flex flex-col gap-1.5 rounded-card bg-accent-2-200 px-6 py-5">
           <span className="kicker text-accent-2-800">
             Tonight, use {eatSoon.length === 1 ? 'this' : `all ${eatSoon.length}`}
           </span>
@@ -320,11 +679,11 @@ const PantryView: React.FC<PantryViewProps> = ({ onHoverStart, onHoverEnd }) => 
               className="border-accent-2-800/40 text-accent-2-900"
             />
           </div>
-        </div>
+        </div>}
       </section>
 
       {/* Impact row — supporting figures, so open panels rather than cards. */}
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Waste impact totals">
         {impact.map(({ key, figure, caption, visual }) => (
           <div key={key} className="panel flex items-center gap-4 px-5 py-4">
             {visual}
@@ -335,6 +694,26 @@ const PantryView: React.FC<PantryViewProps> = ({ onHoverStart, onHoverEnd }) => 
           </div>
         ))}
       </section>
+
+      {wasteEvents.length > 0 && (
+        <section className="panel px-6 py-5" aria-labelledby="waste-history-heading">
+          <h2 id="waste-history-heading" className="text-[21px] text-ink">Recent waste</h2>
+          <ul className="mt-2 divide-y divide-divider">
+            {wasteEvents.slice(0, 5).map((event) => (
+              <li key={event.id} className="flex min-w-0 flex-col gap-1 py-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <span className="min-w-0 break-words">
+                  <span className="font-semibold text-ink">{event.foodName}</span>
+                  <span className="ml-2 text-neutral-600">{event.reason.replace(/_/g, ' ')}</span>
+                  {event.category && <span className="ml-2 text-xs text-neutral-600">· {event.category}</span>}
+                </span>
+                <span className="flex-none self-end text-neutral-700 tabular-nums sm:self-auto">
+                  {event.quantity.toLocaleString('en-US')} g · {new Date(event.wastedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 };

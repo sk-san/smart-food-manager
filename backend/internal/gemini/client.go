@@ -15,7 +15,7 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
-	"github.com/example/food-app/backend/internal/logging"
+	"github.com/sk-san/smart-food-manager/backend/internal/logging"
 )
 
 const (

@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { DailyGoal, DEMO_ACCOUNT_STATS, SUGGESTED_GOALS, UserProfile } from '../types/nutrition';
 import { BookOpen, Bell, CircleDashed, LogOut, Moon, Rows3, Volume2 } from 'lucide-react';
 import { DASHBOARD_LAYOUTS, DashboardLayout } from '../preferences';
 
 interface SettingsViewProps {
   goals: DailyGoal;
-  onUpdateGoals: (goals: DailyGoal) => void;
+  onUpdateGoals: (goals: DailyGoal) => void | Promise<void>;
   isDark: boolean;
   onToggleDark: () => void;
-  /** Shows the template sign-in screen — purely presentational, no real auth. */
+  /** Clears the authenticated session and returns to sign-in. */
   onSignOut: () => void;
   /** Identity to display — the demo account, or a guest role from the bypass. */
   profile: UserProfile;
@@ -43,18 +43,38 @@ interface GoalFieldProps {
   onChange: (value: string) => void;
 }
 
-const GoalField: React.FC<GoalFieldProps> = ({ label, value, onChange }) => (
-  <div>
-    <label className="field-label">{label}</label>
-    <input
-      type="number"
-      aria-label={label}
-      className="input tabular-nums"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    />
-  </div>
-);
+const GoalField: React.FC<GoalFieldProps> = ({ label, value, onChange }) => {
+  // Keep the user's in-progress text separate from the numeric goal. This lets
+  // a keyboard user clear the field before typing a replacement value instead
+  // of React immediately forcing the empty field back to zero.
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  return (
+    <div>
+      <label className="field-label">{label}</label>
+      <input
+        type="number"
+        min="0"
+        inputMode="numeric"
+        aria-label={label}
+        className="input tabular-nums"
+        value={draft}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          setDraft(nextValue);
+          if (nextValue !== '') onChange(nextValue);
+        }}
+        onBlur={() => {
+          if (draft === '') setDraft(String(value));
+        }}
+      />
+    </div>
+  );
+};
 
 const SettingsView: React.FC<SettingsViewProps> = ({
   goals,
@@ -69,6 +89,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const [localGoals, setLocalGoals] = useState<DailyGoal>(goals);
   const [isDirty, setIsDirty] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isDirty) setLocalGoals(goals);
+  }, [goals, isDirty]);
 
   const handleChange = (field: keyof DailyGoal, value: string) => {
     const numValue = parseInt(value) || 0;
@@ -81,11 +107,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     setIsDirty(true);
   };
 
-  const handleSave = () => {
-    onUpdateGoals(localGoals);
-    setIsDirty(false);
-    setShowSaved(true);
-    setTimeout(() => setShowSaved(false), 2000);
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onUpdateGoals(localGoals);
+      setIsDirty(false);
+      setShowSaved(true);
+      setTimeout(() => setShowSaved(false), 2000);
+    } catch (error) {
+      console.error(error);
+      setSaveError('Goals could not be saved. Check your connection and try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -246,11 +281,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           <div className="mt-7 flex flex-wrap justify-end gap-2.5">
+            {saveError && <p role="alert" className="mr-auto text-sm font-semibold text-accent-800">{saveError}</p>}
             <button onClick={handleReset} className="btn btn-secondary">
               Reset to suggested
             </button>
-            <button onClick={handleSave} disabled={!isDirty} className="btn btn-primary">
-              Save goals
+            <button onClick={handleSave} disabled={!isDirty || isSaving} className="btn btn-primary">
+              {isSaving ? 'Saving…' : 'Save goals'}
             </button>
           </div>
         </section>

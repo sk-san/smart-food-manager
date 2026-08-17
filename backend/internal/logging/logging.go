@@ -83,8 +83,8 @@ func SetService(name, version, environment string) {
 // LOG_HASH_SALT so hashed identifiers cannot be reversed by brute force.
 func SetHashSalt(salt string) { svc.salt = salt }
 
-// HashIdentifier pseudonymises a sensitive identifier (client IP, the demo
-// email used as a user ID) as "sha256:<hex>" per the blueprint's PII rules.
+// HashIdentifier pseudonymises a sensitive identifier (client IP, user ID,
+// etc.) as "sha256:<hex>" per the blueprint's PII rules.
 func HashIdentifier(v string) string {
 	sum := sha256.Sum256([]byte(svc.salt + v))
 	return "sha256:" + hex.EncodeToString(sum[:])

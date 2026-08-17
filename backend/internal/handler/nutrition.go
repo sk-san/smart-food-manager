@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"io"
+	"mime"
 	"net/http"
 	"strings"
 )
@@ -32,24 +35,44 @@ type analyzeRequest struct {
 	Text     string `json:"text"`
 	MimeType string `json:"mimeType"`
 	Data     string `json:"data"`
+	ScanType string `json:"scanType"`
 }
 
 // analyzedItem matches the frontend AnalyzedFoodItem. Macros are grams;
 // sodium/calcium/iron are milligrams; calories are kcal.
 type analyzedItem struct {
-	Name     string  `json:"name"`
-	Calories float64 `json:"calories"`
-	Protein  float64 `json:"protein"`
-	Carbs    float64 `json:"carbs"`
-	Fat      float64 `json:"fat"`
-	Sodium   float64 `json:"sodium"`
-	Calcium  float64 `json:"calcium"`
-	Iron     float64 `json:"iron"`
+	Name                string  `json:"name"`
+	Calories            float64 `json:"calories"`
+	Protein             float64 `json:"protein"`
+	Carbs               float64 `json:"carbs"`
+	Fat                 float64 `json:"fat"`
+	Sodium              float64 `json:"sodium"`
+	Calcium             float64 `json:"calcium"`
+	Iron                float64 `json:"iron"`
+	ScanType            string  `json:"scanType"`
+	QuantityGrams       float64 `json:"quantityGrams"`
+	Category            string  `json:"category"`
+	EstimatedExpiryDays int     `json:"estimatedExpiryDays"`
+}
+
+const (
+	// Base64 adds roughly one third to the decoded size. Nine MiB leaves room
+	// for a six MiB image plus its JSON envelope while still putting a hard
+	// bound on memory used by the decoder.
+	maxAnalyzeRequestBodyBytes = 9 << 20
+	maxAnalyzeImageBytes       = 6 << 20
+)
+
+var supportedAnalyzeImageTypes = map[string]struct{}{
+	"image/jpeg": {},
+	"image/png":  {},
+	"image/webp": {},
 }
 
 const analyzeSystemPrompt = `You are a nutrition estimator for a food logging app.
-Given a text description or a photo of a meal, identify each distinct food item
-and estimate its nutrition for the portion actually shown or described.
+Given a text description or a photo, identify each distinct food item and
+estimate its nutrition for the portion actually shown or described. The scan
+intent is food (ready to eat), product (packaged), or ingredient (raw material).
 Be realistic; if unsure, give your best estimate. Respond strictly as JSON.`
 
 // analyzeSchemaPrompt is appended to both modes so the model returns the exact
@@ -57,10 +80,13 @@ Be realistic; if unsure, give your best estimate. Respond strictly as JSON.`
 const analyzeSchemaPrompt = `Return JSON of this exact shape:
 {"items": [
   {"name": string, "calories": number, "protein": number, "carbs": number,
-   "fat": number, "sodium": number, "calcium": number, "iron": number}
+   "fat": number, "sodium": number, "calcium": number, "iron": number,
+   "scanType": "food" | "product" | "ingredient", "quantityGrams": number,
+   "category": string, "estimatedExpiryDays": integer}
 ]}
 Units: calories in kcal; protein, carbs and fat in grams; sodium, calcium and
-iron in milligrams. Use numbers (not strings) and omit no fields.`
+iron in milligrams. Nutrition is for quantityGrams, not per 100 g. Use numbers
+(not strings) and omit no fields.`
 
 // Analyze accepts a text or image payload from the modal, runs it through the
 // Gemini model, and returns the estimated food items.
@@ -71,10 +97,26 @@ func (h *NutritionHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req analyzeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAnalyzeRequestBodyBytes))
+	if err := decoder.Decode(&req); err != nil {
+		writeAnalyzeDecodeError(w, err)
 		return
 	}
+	// Consume the rest of the body. This both rejects a second JSON value and
+	// ensures trailing data cannot bypass MaxBytesReader after the first value.
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeAnalyzeDecodeError(w, err)
+		return
+	}
+	scanType := strings.ToLower(strings.TrimSpace(req.ScanType))
+	if scanType == "" {
+		scanType = "food"
+	}
+	if !sourceTypeValues[scanType] {
+		writeError(w, http.StatusBadRequest, "scanType must be food, product, or ingredient")
+		return
+	}
+	scanContext := "Scan intent: " + scanType + ".\n"
 
 	var raw string
 	var err error
@@ -84,7 +126,7 @@ func (h *NutritionHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "text is required")
 			return
 		}
-		prompt := "Food description:\n" + req.Text + "\n\n" + analyzeSchemaPrompt
+		prompt := scanContext + "Food description:\n" + req.Text + "\n\n" + analyzeSchemaPrompt
 		raw, err = h.analyzer.GenerateText(r.Context(), analyzeSystemPrompt, prompt)
 
 	case "image":
@@ -93,16 +135,17 @@ func (h *NutritionHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid image data")
 			return
 		}
-		mime := req.MimeType
-		if mime == "" {
-			mime = http.DetectContentType(image)
-		}
-		if !strings.HasPrefix(mime, "image/") {
-			writeError(w, http.StatusUnsupportedMediaType, "data is not an image")
+		if len(image) > maxAnalyzeImageBytes {
+			writeError(w, http.StatusRequestEntityTooLarge, "image exceeds 6 MiB limit")
 			return
 		}
-		prompt := "Analyze the food in this image.\n\n" + analyzeSchemaPrompt
-		raw, err = h.analyzer.GenerateFromImage(r.Context(), analyzeSystemPrompt, prompt, mime, image)
+		imageType, validationErr := validateAnalyzeImage(req.MimeType, image)
+		if validationErr != "" {
+			writeError(w, http.StatusUnsupportedMediaType, validationErr)
+			return
+		}
+		prompt := scanContext + "Analyze the food in this image.\n\n" + analyzeSchemaPrompt
+		raw, err = h.analyzer.GenerateFromImage(r.Context(), analyzeSystemPrompt, prompt, imageType, image)
 
 	default:
 		writeError(w, http.StatusBadRequest, `type must be "text" or "image"`)
@@ -128,5 +171,65 @@ func (h *NutritionHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	if parsed.Items == nil {
 		parsed.Items = []analyzedItem{}
 	}
+	for i := range parsed.Items {
+		parsed.Items[i].ScanType = scanType
+		if !finitePositive(parsed.Items[i].QuantityGrams) {
+			parsed.Items[i].QuantityGrams = 100
+		}
+		parsed.Items[i].Category = strings.TrimSpace(parsed.Items[i].Category)
+		if parsed.Items[i].Category == "" {
+			parsed.Items[i].Category = "other"
+		}
+		if parsed.Items[i].EstimatedExpiryDays <= 0 {
+			parsed.Items[i].EstimatedExpiryDays = defaultEstimatedExpiryDays(scanType)
+		}
+	}
 	writeJSON(w, http.StatusOK, parsed.Items)
+}
+
+func defaultEstimatedExpiryDays(scanType string) int {
+	switch scanType {
+	case "product":
+		return 30
+	case "ingredient":
+		return 7
+	default:
+		return 3
+	}
+}
+
+func writeAnalyzeDecodeError(w http.ResponseWriter, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body exceeds 9 MiB limit")
+		return
+	}
+	writeError(w, http.StatusBadRequest, "invalid request body")
+}
+
+// validateAnalyzeImage treats the bytes as authoritative and only accepts the
+// formats the client normalizes to. A supplied MIME type must also be valid,
+// supported, and agree with the detected content.
+func validateAnalyzeImage(declaredType string, image []byte) (string, string) {
+	detectedType := http.DetectContentType(image)
+	if _, ok := supportedAnalyzeImageTypes[detectedType]; !ok {
+		return "", "unsupported image content; use JPEG, PNG, or WebP"
+	}
+
+	if strings.TrimSpace(declaredType) == "" {
+		return detectedType, ""
+	}
+
+	parsedType, _, err := mime.ParseMediaType(strings.TrimSpace(declaredType))
+	if err != nil {
+		return "", "unsupported image MIME type; use JPEG, PNG, or WebP"
+	}
+	parsedType = strings.ToLower(parsedType)
+	if _, ok := supportedAnalyzeImageTypes[parsedType]; !ok {
+		return "", "unsupported image MIME type; use JPEG, PNG, or WebP"
+	}
+	if parsedType != detectedType {
+		return "", "image MIME type does not match its content"
+	}
+	return detectedType, ""
 }

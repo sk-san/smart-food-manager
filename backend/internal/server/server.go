@@ -7,11 +7,11 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
-	"github.com/example/food-app/backend/internal/config"
-	"github.com/example/food-app/backend/internal/gemini"
-	"github.com/example/food-app/backend/internal/handler"
-	"github.com/example/food-app/backend/internal/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sk-san/smart-food-manager/backend/internal/config"
+	"github.com/sk-san/smart-food-manager/backend/internal/gemini"
+	"github.com/sk-san/smart-food-manager/backend/internal/handler"
+	"github.com/sk-san/smart-food-manager/backend/internal/middleware"
 )
 
 // New builds the fully-wired HTTP handler.
@@ -44,6 +44,10 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	labels := handler.NewLabelHandler(pool, geminiClient)
 	nutrition := handler.NewNutritionHandler(geminiClient)
 	frontendLogs := handler.NewTelemetryHandler()
+	meals := handler.NewMealsHandler(pool)
+	goals := handler.NewGoalsHandler(pool)
+	inventory := handler.NewInventoryHandler(pool)
+	waste := handler.NewWasteHandler(pool)
 
 	r.Get("/healthz", health.Healthz)
 
@@ -67,6 +71,41 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Authenticator(cfg.JWTSecret))
 			r.Get("/me", auth.Me)
+
+			// User-owned application data. Every query is scoped to the user id
+			// from the verified JWT; resource ids alone never grant access.
+			r.Route("/meals", func(r chi.Router) {
+				r.Get("/", meals.List)
+				r.Post("/", meals.Create)
+				r.Route("/{mealID}", func(r chi.Router) {
+					r.Get("/", meals.Get)
+					r.Put("/", meals.Update)
+					r.Delete("/", meals.Delete)
+				})
+			})
+			r.Get("/goals", goals.Get)
+			r.Put("/goals", goals.Put)
+			r.Delete("/goals", goals.Delete)
+			r.Route("/inventory", func(r chi.Router) {
+				r.Get("/", inventory.List)
+				r.Post("/", inventory.Create)
+				r.Post("/scans", inventory.CreateScan)
+				r.Route("/{itemID}", func(r chi.Router) {
+					r.Get("/", inventory.Get)
+					r.Put("/", inventory.Update)
+					r.Delete("/", inventory.Delete)
+					r.Post("/consume", inventory.Consume)
+				})
+			})
+			r.Route("/waste-events", func(r chi.Router) {
+				r.Get("/", waste.List)
+				r.Post("/", waste.Create)
+				r.Route("/{eventID}", func(r chi.Router) {
+					r.Get("/", waste.Get)
+					r.Put("/", waste.Update)
+					r.Delete("/", waste.Delete)
+				})
+			})
 
 			// AI nutrition advice, backed by the Gemini external API.
 			r.Post("/nutrients/advice", nutrients.Advice)

@@ -8,10 +8,9 @@ import photo from '../assets/photo.jpg';
 interface LoginViewProps {
   onSignIn: () => void;
   onGuestLogin: (role: GuestRole) => void;
-  onLoggedIn: () => void;
 }
 
-const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin, onLoggedIn }) => {
+const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,7 +25,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin, onLoggedI
     try {
       const data = await apiPost<LoginResponse>('/api/v1/auth/login', { email, password });
       setToken(data.token);
-      onLoggedIn();
       onSignIn();
     } catch (err) {
       setError('Invalid email or password.');

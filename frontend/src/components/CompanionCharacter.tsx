@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X } from 'lucide-react';
 import { getCompanionMessage } from '../services/nutritionService';
 import { DailyGoal, NutritionData } from '../types/nutrition';
-import { COMPANION_ROOM_QUERY, readCompanionCollapsed, writeCompanionCollapsed } from '../preferences';
-import { useIsMobile, useMediaQuery } from '../hooks/useMediaQuery';
+import { useIsMobile } from '../hooks/useMediaQuery';
 
 interface CompanionCharacterProps {
   stats: NutritionData;
@@ -15,6 +13,8 @@ interface CompanionCharacterProps {
 
 /** How long after the last scroll event Nutri fades back in. */
 const SCROLL_IDLE_MS = 450;
+/** Nutri mirrors once its body enters this left-edge zone. */
+const LEFT_EDGE_FLIP_PX = 160;
 
 // Silhouette, shared between the full rig and the folded-away badge.
 const EAR_L_PATH =
@@ -30,6 +30,15 @@ interface Particle {
   x: number;
   y: number;
   scale: number;
+}
+
+interface DragOrigin {
+  pointerX: number;
+  pointerY: number;
+  offsetX: number;
+  offsetY: number;
+  bounds: DOMRect;
+  catBounds: DOMRect;
 }
 
 type EyeVariant = 'open' | 'wide' | 'happy' | 'sleepy';
@@ -68,15 +77,16 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({
   const [message, setMessage] = useState<string>("Hi! I'm Nutri! (◕‿◕)");
   const [isTyping, setIsTyping] = useState(false);
   const [particles, setParticles] = useState<Particle[]>([]);
-  const [collapsedPref, setCollapsedPref] = useState<boolean | null>(readCompanionCollapsed);
   const [isScrolling, setIsScrolling] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [isNearLeftEdge, setIsNearLeftEdge] = useState(true);
 
   const isMobile = useIsMobile();
-  // Until the reader says otherwise, Nutri is out only where the page leaves a
-  // gutter wide enough to hold it — so it never starts life on top of a card.
-  const hasRoom = useMediaQuery(COMPANION_ROOM_QUERY);
-  const isCollapsed = collapsedPref ?? !hasRoom;
   const scrollingRef = useRef(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const dragOriginRef = useRef<DragOrigin | null>(null);
+  const didDragRef = useRef(false);
 
   // On a phone the companion is parked over the content it is commenting on,
   // so it gets out of the way while the reader is moving through the page and
@@ -107,9 +117,61 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({
     };
   }, [isMobile]);
 
-  const handleCollapsedChange = (collapsed: boolean) => {
-    setCollapsedPref(collapsed);
-    writeCompanionCollapsed(collapsed);
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+
+    const bounds = anchorRef.current?.getBoundingClientRect();
+    if (!bounds) return;
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragOriginRef.current = {
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      offsetX: dragOffset.x,
+      offsetY: dragOffset.y,
+      bounds,
+      catBounds: event.currentTarget.getBoundingClientRect(),
+    };
+    didDragRef.current = false;
+    setIsDragging(true);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const origin = dragOriginRef.current;
+    if (!origin || !event.isPrimary) return;
+
+    const rawX = event.clientX - origin.pointerX;
+    const rawY = event.clientY - origin.pointerY;
+    const margin = 8;
+    const deltaX = Math.min(
+      window.innerWidth - margin - origin.bounds.right,
+      Math.max(margin - origin.bounds.left, rawX)
+    );
+    const deltaY = Math.min(
+      window.innerHeight - margin - origin.bounds.bottom,
+      Math.max(margin - origin.bounds.top, rawY)
+    );
+
+    if (Math.hypot(rawX, rawY) > 5) didDragRef.current = true;
+    setIsNearLeftEdge(origin.catBounds.left + deltaX < LEFT_EDGE_FLIP_PX);
+    setDragOffset({ x: origin.offsetX + deltaX, y: origin.offsetY + deltaY });
+  };
+
+  const handlePointerEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!dragOriginRef.current || !event.isPrimary) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragOriginRef.current = null;
+    setIsDragging(false);
+  };
+
+  const handleCatClick = () => {
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
+    handlePet();
   };
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -423,7 +485,7 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({
       rigRef.current?.destroy();
       rigRef.current = null;
     };
-  }, [isCollapsed, isSuppressed]);
+  }, [isSuppressed]);
 
   // Keep the rig's view of "is the user reading?" in sync, then let it re-pose.
   useEffect(() => {
@@ -505,31 +567,12 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({
     ? 'opacity-0 translate-y-2 pointer-events-none'
     : 'opacity-100 translate-y-0';
 
-  if (isCollapsed) {
-    return (
-      <div className={anchor}>
-        <style>{CMP_STYLES}</style>
-        <button
-          type="button"
-          onClick={() => handleCollapsedChange(false)}
-          aria-label="Show Nutri, your nutrition companion"
-          className={`pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-divider bg-surface shadow-md transition-all duration-300 hover:scale-105 active:scale-95 ${scrollFade}`}
-        >
-          <svg viewBox="392 296 792 536" className="h-7 w-7 overflow-visible" aria-hidden="true" focusable="false">
-            <path className="cmp-cat-body" d={EAR_L_PATH} />
-            <path className="cmp-cat-body" d={EAR_R_PATH} />
-            <path className="cmp-cat-body" d={HEAD_PATH} />
-            {[612, 776].map((cx) => (
-              <rect key={cx} className="cmp-eye-fill" x={cx - 18} y="530" width="36" height="72" rx="18" />
-            ))}
-          </svg>
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className={`${anchor} flex flex-col items-center gap-2 transition-all duration-300 ${scrollFade}`}>
+    <div
+      ref={anchorRef}
+      className={`${anchor} flex flex-col items-center gap-2 transition-opacity duration-300 ${scrollFade}`}
+      style={{ transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0)` }}
+    >
       <style>{CMP_STYLES}</style>
 
       {/* Speech Bubble. Collapses to nothing while the reader is busy with the
@@ -552,31 +595,30 @@ const CompanionCharacter: React.FC<CompanionCharacterProps> = ({
         <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-surface border-b border-r border-divider transform rotate-45" />
       </div>
 
-      {/* Character — click (or Space/Enter) to pet the cat. The dismiss control
-          rides on the cat rather than in the bubble: the bubble is hidden
-          whenever the reader is looking at the page, which is exactly when
-          getting the companion out of the way matters most. */}
+      {/* Character — click (or Space/Enter) to pet the cat. */}
       <div className="pointer-events-auto relative">
-        <button
-          type="button"
-          onClick={() => handleCollapsedChange(true)}
-          aria-label="Hide Nutri"
-          className="absolute -right-1 top-7 z-10 grid h-8 w-8 place-items-center rounded-full border border-divider bg-surface text-neutral-700 shadow-md transition-colors hover:bg-neutral-200"
-        >
-          <X size={15} strokeWidth={2.75} />
-        </button>
       <button
         type="button"
         aria-label="Nutri, your nutrition companion. Activate to pet the cat for a fresh message."
-        className={`cmp-cat w-28 h-28 ${isLookingAtScreen ? 'is-away' : ''}`}
-        onClick={handlePet}
+        className={`cmp-cat w-28 h-28 ${isLookingAtScreen ? 'is-away' : ''} ${isDragging ? 'is-dragging' : ''}`}
+        onClick={handleCatClick}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
       >
         <span className="cmp-shadow" aria-hidden="true" />
 
         {/* Cat silhouette. Nested groups isolate each motion channel so they
             compose without fighting: hop (WAAPI) > bob (CSS) > lean (glance
             tilt) > breathe (CSS), with the face tracking on top. */}
-        <svg ref={svgRef} className="cmp-cat-svg" viewBox="392 296 792 536" aria-hidden="true" focusable="false">
+        <svg
+          ref={svgRef}
+          className={`cmp-cat-svg ${isNearLeftEdge ? 'is-flipped' : ''}`}
+          viewBox="392 296 792 536"
+          aria-hidden="true"
+          focusable="false"
+        >
           <g data-g="hop" className="cmp-hop">
             <g data-g="bob" className="cmp-bob">
               <g data-g="lean" className="cmp-lean">
@@ -678,16 +720,23 @@ const CMP_STYLES = `
   padding: 0;
   border: 0;
   background: transparent;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
   transform: rotate(var(--tilt));
   transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.cmp-cat.is-dragging {
+  cursor: grabbing;
+  transform-origin: 50% 8%;
+  animation: cmp-cat-dangle 420ms ease-in-out infinite alternate;
 }
 .cmp-cat:focus-visible {
   outline: 3px solid rgb(198 113 57 / 70%);
   outline-offset: 6px;
   border-radius: 22px;
 }
-.cmp-cat.is-away { --tilt: 4deg; cursor: default; }
+.cmp-cat.is-away { --tilt: 4deg; }
 
 .cmp-shadow {
   width: 62%;
@@ -700,6 +749,11 @@ const CMP_STYLES = `
   background: rgb(46 43 37 / 18%);
   filter: blur(8px);
   transform: translateX(-50%);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.cmp-cat.is-dragging .cmp-shadow {
+  opacity: 0.35;
+  transform: translateX(-50%) translateY(12px) scale(0.78);
 }
 
 .cmp-cat-svg {
@@ -709,7 +763,9 @@ const CMP_STYLES = `
   width: 100%;
   height: auto;
   overflow: visible;
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+.cmp-cat-svg.is-flipped { transform: scaleX(-1); }
 
 .cmp-cat-body { fill: var(--color-text); }
 .cmp-cat-line { fill: none; stroke: var(--color-text); }
@@ -767,6 +823,11 @@ const CMP_STYLES = `
   58% { transform: rotate(10deg); }
   100% { transform: rotate(0deg); }
 }
+@keyframes cmp-cat-dangle {
+  0% { transform: translateY(-3px) rotate(-7deg); }
+  50% { transform: translateY(2px) rotate(2deg); }
+  100% { transform: translateY(4px) rotate(8deg); }
+}
 @keyframes cmp-float-up {
   0% { transform: translateY(0) scale(0.5); opacity: 0; }
   20% { opacity: 1; transform: translateY(-8px) scale(1); }
@@ -777,7 +838,8 @@ const CMP_STYLES = `
    ambient CSS loops and collapses the pose transitions. */
 @media (prefers-reduced-motion: reduce) {
   .cmp-bob, .cmp-breath, .cmp-tail { animation: none; }
-  .cmp-lean, .cmp-face, .cmp-ear, .cmp-cat { transition-duration: 1ms; }
+  .cmp-cat.is-dragging { animation: none; }
+  .cmp-lean, .cmp-face, .cmp-ear, .cmp-cat, .cmp-cat-svg { transition-duration: 1ms; }
 }
 `;
 
