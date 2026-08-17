@@ -112,14 +112,17 @@ func startSuite(t *testing.T) *suite {
 			JWTExpiry:      time.Hour,
 			RateLimitRPS:   1000, // headroom so ordinary tests never trip the limiter
 			RateLimitBurst: 1000,
-			AllowedOrigin:  "http://localhost:5173",
-			ServiceName:    "backend-api-e2e",
-			ServiceVersion: "test",
-			Environment:    "test",
-			GeminiAPIKey:   "e2e-fake-key",
-			GeminiBaseURL:  fakeSrv.URL,
-			GeminiModel:    "gemini-e2e",
-			GeminiTimeout:  10 * time.Second,
+			// Likewise for the guest AI cap: TestGuestAIDailyLimit runs its
+			// own server with the production default.
+			GuestAIDailyLimit: 1000,
+			AllowedOrigin:     "http://localhost:5173",
+			ServiceName:       "backend-api-e2e",
+			ServiceVersion:    "test",
+			Environment:       "test",
+			GeminiAPIKey:      "e2e-fake-key",
+			GeminiBaseURL:     fakeSrv.URL,
+			GeminiModel:       "gemini-e2e",
+			GeminiTimeout:     10 * time.Second,
 		}
 
 		s = &suite{
@@ -401,6 +404,66 @@ func TestNutritionAnalyze(t *testing.T) {
 			map[string]string{"type": "text", "text": "mystery stew"})
 		if status != http.StatusBadGateway {
 			t.Fatalf("got %d, want 502", status)
+		}
+	})
+}
+
+// TestGuestAIDailyLimit exercises the guest cap over real HTTP against a
+// server configured with the production default of three analyses a day. It
+// needs its own server because the cap counts per process and the shared
+// suite deliberately runs with headroom.
+func TestGuestAIDailyLimit(t *testing.T) {
+	s := startSuite(t)
+
+	fake := &fakeGemini{}
+	fake.set(`{"items":[{"name":"Apple","calories":95,"protein":0.5,"carbs":25,` +
+		`"fat":0.3,"sodium":1,"calcium":6,"iron":0.1}]}`)
+	fakeSrv := httptest.NewServer(fake.handler())
+	defer fakeSrv.Close()
+
+	cfg := s.cfg
+	cfg.GeminiBaseURL = fakeSrv.URL
+	cfg.GuestAIDailyLimit = 3
+	capped := &suite{pool: s.pool, api: httptest.NewServer(server.New(cfg, s.pool)), fake: fake, cfg: cfg}
+	defer capped.api.Close()
+
+	analyze := func(t *testing.T, token string) (int, map[string]any) {
+		t.Helper()
+		return capped.doJSON(t, http.MethodPost, "/api/v1/nutrition/analyze", token,
+			map[string]string{"type": "text", "text": "an apple"})
+	}
+
+	t.Run("a guest gets three analyses", func(t *testing.T) {
+		for i := 1; i <= 3; i++ {
+			if status, body := analyze(t, ""); status != http.StatusOK {
+				t.Fatalf("analysis %d: got %d, want 200 (body %v)", i, status, body)
+			}
+		}
+		status, quota := capped.doJSON(t, http.MethodGet, "/api/v1/nutrition/quota", "", nil)
+		if status != http.StatusOK {
+			t.Fatalf("quota: got %d, want 200", status)
+		}
+		if quota["remaining"] != float64(0) || quota["limit"] != float64(3) {
+			t.Fatalf("quota = %v, want limit 3 and remaining 0", quota)
+		}
+	})
+
+	t.Run("the fourth is rejected with the quota code", func(t *testing.T) {
+		status, body := analyze(t, "")
+		if status != http.StatusTooManyRequests {
+			t.Fatalf("got %d, want 429 (body %v)", status, body)
+		}
+		if body["code"] != middleware.GuestAIQuotaCode {
+			t.Errorf("code = %v, want %q", body["code"], middleware.GuestAIQuotaCode)
+		}
+	})
+
+	t.Run("a signed-in user is not capped", func(t *testing.T) {
+		token := capped.login(t, "guest-quota@example.com")
+		for i := 1; i <= 4; i++ {
+			if status, body := analyze(t, token); status != http.StatusOK {
+				t.Fatalf("authenticated analysis %d: got %d, want 200 (body %v)", i, status, body)
+			}
 		}
 	})
 }

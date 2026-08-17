@@ -12,13 +12,14 @@ import (
 
 func TestNewWiresAuthenticationAndAIAnalysis(t *testing.T) {
 	cfg := config.Config{
-		JWTSecret:      "server-test-secret",
-		JWTExpiry:      time.Minute,
-		RateLimitRPS:   100,
-		RateLimitBurst: 100,
-		AllowedOrigin:  "https://app.example.com",
-		ServiceName:    "test-api",
-		GeminiTimeout:  time.Second,
+		JWTSecret:         "server-test-secret",
+		JWTExpiry:         time.Minute,
+		RateLimitRPS:      100,
+		RateLimitBurst:    100,
+		AllowedOrigin:     "https://app.example.com",
+		ServiceName:       "test-api",
+		GeminiTimeout:     time.Second,
+		GuestAIDailyLimit: 3,
 	}
 	handler := New(cfg, nil)
 
@@ -37,6 +38,20 @@ func TestNewWiresAuthenticationAndAIAnalysis(t *testing.T) {
 		handler.ServeHTTP(res, req)
 		if res.Code != http.StatusBadGateway {
 			t.Errorf("status = %d, want 502; body = %s", res.Code, res.Body.String())
+		}
+	})
+
+	t.Run("guest AI quota route reports the daily allowance", func(t *testing.T) {
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/v1/nutrition/quota", nil))
+		if res.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", res.Code)
+		}
+		// The failed analysis above was refunded, so the whole allowance is
+		// still available.
+		body := res.Body.String()
+		if !strings.Contains(body, `"limit":3`) || !strings.Contains(body, `"remaining":3`) {
+			t.Errorf("body = %s, want limit 3 and remaining 3", body)
 		}
 	})
 

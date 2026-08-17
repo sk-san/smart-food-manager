@@ -16,6 +16,10 @@ type Config struct {
 	RateLimitBurst float64
 	AllowedOrigin  string
 
+	// GuestAIDailyLimit is how many AI analyses an unauthenticated visitor
+	// may run per UTC day. Negative disables the cap; zero blocks guests.
+	GuestAIDailyLimit int
+
 	// Observability identity (service.name / service.version /
 	// deployment.environment on every log, trace, and metric).
 	ServiceName    string
@@ -43,6 +47,9 @@ func Load() Config {
 		RateLimitRPS:   getEnvFloat("RATE_LIMIT_RPS", 10),
 		RateLimitBurst: getEnvFloat("RATE_LIMIT_BURST", 20),
 		AllowedOrigin:  getEnv("ALLOWED_ORIGIN", "http://localhost:5173"),
+
+		GuestAIDailyLimit: getEnvInt("GUEST_AI_DAILY_LIMIT", 3),
+
 		ServiceName:    getEnv("SERVICE_NAME", "backend-api"),
 		ServiceVersion: getEnv("SERVICE_VERSION", "0.1.0"),
 		Environment:    getEnv("DEPLOYMENT_ENVIRONMENT", "development"),

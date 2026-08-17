@@ -5,6 +5,7 @@ import { test, expect, Page } from "@playwright/test";
 // deterministic and never call the Go API or Gemini.
 
 const ANALYZE_PATH = "**/api/v1/nutrition/analyze";
+const QUOTA_PATH = "**/api/v1/nutrition/quota";
 const TELEMETRY_PATH = "**/api/v1/telemetry/logs";
 const LOGIN_PATH = "**/api/v1/auth/login";
 const ME_PATH = "**/api/v1/me";
@@ -108,6 +109,12 @@ test.beforeEach(async ({ page }) => {
   // proxy errors in the dev-server log (the UI falls back locally either way).
   await page.route("**/api/v1/companion/message", (route) =>
     route.fulfill({ status: 200, json: { message: "(o^▽^o) keep it up!" } })
+  );
+  // The scanner asks how many AI analyses a guest has left. Signed-in callers
+  // are uncapped, which is what the app tests below assume; the guest quota
+  // tests override this route with a real allowance.
+  await page.route(QUOTA_PATH, (route) =>
+    route.fulfill({ status: 200, json: { unlimited: true, limit: 0, used: 0, remaining: 0 } })
   );
   // Sign-in posts real credentials to the Go API; stub it so the login tests
   // stay deterministic and need no database.
@@ -493,6 +500,115 @@ test.describe("log food modal", () => {
 
     await expect(page.getByRole("heading", { name: "Check your meal" })).toBeVisible();
     await expect(page.getByLabel("Food name")).toHaveValue("mystery stew");
+  });
+});
+
+// AI analysis costs a Gemini call, so visitors without an account get a small
+// daily allowance. The backend is the enforcer; these cover what the guest is
+// told about it and that the UI never spends a run it does not have.
+test.describe("guest AI allowance", () => {
+  const RESET_AT = "2026-08-18T00:00:00Z";
+
+  const stubQuota = (page: Page, remaining: number, limit = 3) =>
+    page.route(QUOTA_PATH, (route) =>
+      route.fulfill({
+        status: 200,
+        json: { unlimited: false, limit, used: limit - remaining, remaining, resetAt: RESET_AT },
+      })
+    );
+
+  const analyzedItem = {
+    name: "Guest oatmeal",
+    calories: 210,
+    protein: 7,
+    carbs: 36,
+    fat: 4,
+    sodium: 120,
+    calcium: 80,
+    iron: 2,
+    scanType: "food",
+    quantityGrams: 200,
+    category: "grains",
+    estimatedExpiryDays: 2,
+  };
+
+  const enterAsGuest = async (page: Page) => {
+    await navTab(page, "Account").click();
+    await content(page).getByRole("button", { name: "Log out" }).click();
+    await page.getByRole("button", { name: "Continue as guest" }).click();
+    await expect(page.getByRole("heading", { name: /at the table/ })).toBeVisible();
+  };
+
+  test("shows the remaining scans and counts one down per analysis", async ({ page }) => {
+    await stubQuota(page, 3);
+    await page.route(ANALYZE_PATH, (route) => route.fulfill({ status: 200, json: [analyzedItem] }));
+    await enterAsGuest(page);
+
+    await headerButton(page, "Log food").click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Guest mode · 3 of 3 AI scans left today")).toBeVisible();
+
+    await page.getByPlaceholder(/avocado toast/).fill("a bowl of oatmeal");
+    await page.getByRole("button", { name: /Analyze/ }).click();
+    await expect(page.getByRole("heading", { name: "Check your meal" })).toBeVisible();
+
+    // Back on the scanner the spent run is reflected without re-asking the
+    // backend, which would report the same allowance the modal already knows.
+    await dialog.getByRole("button", { name: "Back to scanner" }).click();
+    await expect(dialog.getByText("Guest mode · 2 of 3 AI scans left today")).toBeVisible();
+  });
+
+  test("blocks the analysis once the day's scans are gone", async ({ page }) => {
+    await stubQuota(page, 0);
+    let analyzeCalls = 0;
+    await page.route(ANALYZE_PATH, (route) => {
+      analyzeCalls += 1;
+      return route.fulfill({ status: 200, json: [analyzedItem] });
+    });
+    await enterAsGuest(page);
+
+    await headerButton(page, "Log food").click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Today’s 3 guest AI scans are used up.")).toBeVisible();
+
+    // The analyze action is gone rather than disabled: there is nothing it
+    // could do until the allowance returns.
+    await page.getByPlaceholder(/avocado toast/).fill("a bowl of oatmeal");
+    await expect(dialog.getByRole("button", { name: /Analyze|Use this photo/ })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Check your meal" })).toBeHidden();
+    expect(analyzeCalls).toBe(0);
+  });
+
+  test("reports a rejected analysis instead of passing off a local estimate", async ({ page }) => {
+    // The modal's count is stale — another tab spent the last run — so the
+    // rejection arrives from the backend rather than being anticipated.
+    await stubQuota(page, 1);
+    await page.route(ANALYZE_PATH, (route) =>
+      route.fulfill({
+        status: 429,
+        json: {
+          error: "guest AI analyses are limited to 3 per day; sign in to continue",
+          code: "guest_ai_daily_limit",
+          limit: 3,
+          remaining: 0,
+          resetAt: RESET_AT,
+        },
+      })
+    );
+    await enterAsGuest(page);
+
+    await headerButton(page, "Log food").click();
+    await page.getByPlaceholder(/avocado toast/).fill("a bowl of oatmeal");
+    await page.getByRole("button", { name: /Analyze/ }).click();
+
+    // A text failure normally yields a local estimate; a spent allowance must
+    // not, or the guest would think the analysis ran.
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("alert")).toContainText("guest AI scans are used up");
+    await expect(page.getByRole("heading", { name: "Check your meal" })).toBeHidden();
+    // The rejection also updates the scanner, which now offers no analysis.
+    await expect(dialog.getByText("Today’s 3 guest AI scans are used up.")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /Analyze|Use this photo/ })).toHaveCount(0);
   });
 });
 
