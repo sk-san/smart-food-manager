@@ -41,7 +41,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		Port:           getEnv("PORT", "8080"),
-		DatabaseURL:    getEnv("DATABASE_URL", "postgres://app:app@localhost:5432/foodapp?sslmode=disable"),
+		DatabaseURL:    getEnv("DATABASE_URL", "postgres://app:app@localhost:5433/foodapp?sslmode=disable"),
 		JWTSecret:      getEnv("JWT_SECRET", "dev-secret-change-me"),
 		JWTExpiry:      time.Duration(getEnvInt("JWT_EXPIRY_MINUTES", 60)) * time.Minute,
 		RateLimitRPS:   getEnvFloat("RATE_LIMIT_RPS", 10),

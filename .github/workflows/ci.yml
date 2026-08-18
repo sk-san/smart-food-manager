@@ -59,16 +59,16 @@ jobs:
           POSTGRES_PASSWORD: app
           POSTGRES_DB: foodapp
         ports:
-          - 5432:5432
+          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U app -d foodapp"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      # The suite reads DATABASE_URL and otherwise falls back to the
-      # docker-compose port (5433), which does not exist here.
-      DATABASE_URL: postgres://app:app@localhost:5432/foodapp?sslmode=disable
+      # The service above is published on 5433 to match the docker-compose
+      # host port, so this agrees with the suite's own fallback.
+      DATABASE_URL: postgres://app:app@localhost:5433/foodapp?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
