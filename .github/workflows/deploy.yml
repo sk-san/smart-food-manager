@@ -92,8 +92,14 @@ jobs:
       #
       # Do not also set Root Directory to `backend` in Railway: combined with
       # this flag it would look for backend/backend.
+      #
+      # --no-gitignore because the CLI's ignore handling diverges from git's:
+      # with the archive re-rooted it dropped backend/cmd/api, which git does
+      # not ignore, and the build died on "stat /src/cmd/api: directory not
+      # found". Filtering by .gitignore is redundant here anyway — this runs on
+      # a fresh checkout, which holds nothing but committed files.
       - name: Deploy
-        run: railway up backend --path-as-root --service "${{ vars.RAILWAY_SERVICE }}" --ci
+        run: railway up backend --path-as-root --no-gitignore --service "${{ vars.RAILWAY_SERVICE }}" --ci
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
