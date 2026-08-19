@@ -7,6 +7,9 @@
 # Frontend
 /frontend/node_modules/
 /frontend/dist/
+
+# Wrangler's local cache, created by any `wrangler pages` command.
+.wrangler/
 /frontend/node_modules/.tmp/
 *.tsbuildinfo
 /frontend/vite.config.js
