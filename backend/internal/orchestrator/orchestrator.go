@@ -24,10 +24,14 @@ var (
 // AgentResult is one agent's contribution to a fan-out. Err is set when that
 // agent failed; the others still count, which is the point of fanning out.
 type AgentResult struct {
-	Name   string
-	Output string
-	Usage  tracing.Usage
-	Err    error
+	Name string
+	// Provider and Model record which model produced the draft, so a caller
+	// can tell two drafts apart by more than a name.
+	Provider string
+	Model    string
+	Output   string
+	Usage    tracing.Usage
+	Err      error
 }
 
 // Result is a completed fan-out.
@@ -63,6 +67,16 @@ func New(name string, recorder *tracing.Recorder, synthesizer Synthesizer, agent
 		synthesizer: synthesizer,
 		recorder:    recorder,
 	}
+}
+
+// Describe lists the configured agents, so a caller can report the roster
+// without holding a second reference to it.
+func (o *Orchestrator) Describe() []agent.Descriptor {
+	out := make([]agent.Descriptor, 0, len(o.agents))
+	for _, a := range o.agents {
+		out = append(out, a.Describe())
+	}
+	return out
 }
 
 // Run fans the prompt out to every agent, then synthesizes their replies.
@@ -147,12 +161,15 @@ func (o *Orchestrator) fanOut(ctx context.Context, prompt string) []AgentResult 
 			defer wg.Done()
 
 			resp, err := a.Run(ctx, prompt)
+			d := a.Describe()
 			// Each goroutine owns one index, so the slice needs no lock.
 			results[i] = AgentResult{
-				Name:   a.Describe().Name,
-				Output: resp.Text,
-				Usage:  resp.Usage,
-				Err:    err,
+				Name:     d.Name,
+				Provider: d.Provider,
+				Model:    d.Model,
+				Output:   resp.Text,
+				Usage:    resp.Usage,
+				Err:      err,
 			}
 		}()
 	}

@@ -392,13 +392,23 @@ Multi-agent work shows up as a run tree — a `chain` run for the fan-out with o
 agent underneath, each carrying its model, prompt, answer, and token usage. Leave the key
 blank and nothing changes: the spans are ordinary OTel spans and still reach Tempo.
 
-Exercise it without an HTTP route:
+`POST /api/v1/nutrients/advice/panel` (authenticated) puts one question to every configured
+provider at once and returns the merged answer with each model's draft beside it. It is a
+separate route from `/nutrients/advice` on purpose: it costs one model call per agent plus the
+merge, where that route costs one. The route is registered only when a provider key is set.
+
+If the merge fails but drafts succeeded — which happens when the synthesizer's provider is the
+one being rate limited — the response falls back to a draft and reports `"merged": false`,
+rather than answering 502 while holding a usable answer.
+
+Exercise the same panel from the command line:
 
 ```bash
 set -a; . ./.env; set +a
 cd backend && go run ./cmd/orchestrate "what should I cook with lentils and spinach?"
 ```
 
+Both the route and the CLI build their roster from `llm.NewPanel`, so they cannot drift.
 The fan-out compares two Gemini models (`GEMINI_MODEL` and `GEMINI_ALT_MODEL`), and adds a
 Mistral or OpenAI agent for each of `MISTRAL_API_KEY` / `OPENAI_API_KEY` that is set. An agent
 whose provider fails is dropped from the merge rather than failing the run, so the roster can

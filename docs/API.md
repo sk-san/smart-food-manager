@@ -831,6 +831,63 @@ normal `advice` string rather than JSON serialized inside another string.
 As with analysis, a missing `GEMINI_API_KEY` currently produces `502`, not
 `503`, in the normal server configuration.
 
+#### `POST /api/v1/nutrients/advice/panel`
+
+Requires a valid Bearer token. Puts the same question to every configured provider at once and
+returns the merged answer with each model's draft beside it. Registered only when a provider
+key is configured.
+
+Request:
+
+```json
+{
+  "prompt": "How do I get more iron without red meat?"
+}
+```
+
+Success — `200 OK`:
+
+```json
+{
+  "answer": "Eat iron-rich non-red-meat foods like 1 cup of cooked lentils (6.6 mg)...",
+  "merged": true,
+  "totalTokens": 1431,
+  "drafts": [
+    {
+      "agent": "gemini-draft",
+      "provider": "gcp.gemini",
+      "model": "gemini-2.5-flash",
+      "answer": "...",
+      "inputTokens": 56,
+      "outputTokens": 1181
+    },
+    {
+      "agent": "mistral-draft",
+      "provider": "mistral",
+      "model": "mistral-small-latest",
+      "error": "unavailable",
+      "inputTokens": 0,
+      "outputTokens": 0
+    }
+  ]
+}
+```
+
+`merged` is `false` when the merge step failed and `answer` is a single draft rather than a
+combination — the caller is told which, instead of being handed one model's answer dressed up
+as a consensus. A draft that failed carries `error` instead of `answer`; the provider's message
+stays server-side, in the dependency logs and on the span.
+
+Errors:
+
+| Status | Body |
+| --- | --- |
+| `400` | `{"error":"invalid request body"}` |
+| `400` | `{"error":"prompt is required"}` |
+| `400` | `{"error":"prompt is too long"}` |
+| `401` | Plain-text authentication error |
+| `502` | `{"error":"the model panel is unavailable"}` — every agent failed |
+
 ### 4.9 Create a food from a nutrition label
 
 #### `POST /api/v1/foods/from-label`

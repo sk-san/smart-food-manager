@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -17,6 +18,14 @@ import (
 )
 
 // New builds the fully-wired HTTP handler.
+// panelSystemPrompt is the role every drafting agent in the panel is given.
+// They share it deliberately: what should differ between drafts is the model,
+// not the brief.
+const panelSystemPrompt = `You are a careful nutrition assistant.
+Answer in at most six sentences. Be concrete: name foods, amounts, and
+timings rather than general advice. Say plainly when something is outside
+what diet alone can address.`
+
 func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	r := chi.NewRouter()
 
@@ -54,6 +63,14 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	nutrients := handler.NewNutrientHandler(pool, llm.NewTraced(geminiClient, recorder, "nutrition.advice"))
 	labels := handler.NewLabelHandler(pool, llm.NewTraced(geminiClient, recorder, "label.extract"))
 	nutrition := handler.NewNutritionHandler(llm.NewTraced(geminiClient, recorder, "meal.analyze"))
+	// The multi-model panel is optional: without a provider key there is
+	// nothing to fan out to, so the route is simply not registered rather
+	// than served as an endpoint that can only fail.
+	panel, panelErr := llm.NewPanel(cfg, recorder, "nutrition.panel", panelSystemPrompt)
+	if panelErr != nil {
+		slog.Warn("model panel disabled", "error", panelErr)
+	}
+
 	frontendLogs := handler.NewTelemetryHandler()
 	meals := handler.NewMealsHandler(pool)
 	goals := handler.NewGoalsHandler(pool)
@@ -130,6 +147,14 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 
 			// Extract nutrients from a product-label image and save a food.
 			r.Post("/foods/from-label", labels.ExtractAndSave)
+
+			// The same question put to several models at once, returning the
+			// merged answer with each draft beside it. Kept separate from
+			// /nutrients/advice because it costs one model call per agent
+			// plus the merge, where that route costs one.
+			if panelErr == nil {
+				r.Post("/nutrients/advice/panel", handler.NewPanelHandler(panel).Advice)
+			}
 
 			// Admin-only example (RBAC).
 			r.With(middleware.RequireRole("admin")).

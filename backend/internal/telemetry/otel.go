@@ -103,9 +103,14 @@ const llmTraceTTL = 5 * time.Minute
 // HTTP parent is not merely a workaround either — LangSmith rolls the child's
 // tokens and cost up onto it, so it is the run that shows what a request cost.
 //
-// A span is forwarded when it carries the LLM attribute, or when an earlier
-// span in the same trace did. Children end before their parents, so by the
-// time the HTTP root ends the trace is already marked.
+// A span is forwarded when it carries the LLM attribute, or when it is the
+// root of a trace already marked as LLM work. Children end before their
+// parents, so by the time the HTTP root ends the trace is marked.
+//
+// Restricting the second case to the root matters: a fan-out runs its agents
+// concurrently, so one agent's outbound HTTP span often ends after another
+// agent's LLM span has marked the trace. Forwarding everything in a marked
+// trace let nine transport spans through for a single panel request.
 type llmTracesOnly struct {
 	sdktrace.SpanProcessor
 
@@ -127,7 +132,9 @@ func (p *llmTracesOnly) OnEnd(span sdktrace.ReadOnlySpan) {
 		p.SpanProcessor.OnEnd(span)
 		return
 	}
-	if p.marked(traceID) {
+	// The root is kept because LangSmith discards a run whose parent it never
+	// received, and because it is the run the child costs roll up onto.
+	if !span.Parent().IsValid() && p.marked(traceID) {
 		p.SpanProcessor.OnEnd(span)
 	}
 }
