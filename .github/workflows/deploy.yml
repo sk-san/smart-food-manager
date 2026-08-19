@@ -83,13 +83,17 @@ jobs:
       # Deploying from Actions rather than Railway's GitHub integration keeps
       # both halves in this one path-filtered workflow — leave the service
       # disconnected from the repo in Railway, or every push deploys twice.
-      # Uploaded from the repository root, with the service's Root Directory
-      # set to `backend` — the same arrangement Railway's own GitHub
-      # integration uses for a monorepo. Running this from backend/ instead
-      # would hand Railway an archive whose root is already backend/, and the
-      # Root Directory setting would then look for backend/backend.
+      # --path-as-root makes backend/ the root of the uploaded archive, so
+      # Railway finds railway.toml and Dockerfile where it expects them. The
+      # alternative is the service's Root Directory setting, but that only
+      # applies to the GitHub integration — a CLI upload without this flag
+      # ships the whole repository, and Railpack then fails to detect an app
+      # at a root that holds only backend/, frontend/, docs/ and friends.
+      #
+      # Do not also set Root Directory to `backend` in Railway: combined with
+      # this flag it would look for backend/backend.
       - name: Deploy
-        run: railway up --service "${{ vars.RAILWAY_SERVICE }}" --ci
+        run: railway up backend --path-as-root --service "${{ vars.RAILWAY_SERVICE }}" --ci
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
