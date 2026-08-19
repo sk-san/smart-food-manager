@@ -51,6 +51,47 @@ func TestFilterKeepsWholeTraceThatDidLLMWork(t *testing.T) {
 	}
 }
 
+func TestFilterDropsTransportSpansInsideAnLLMTrace(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(
+		telemetry.WithLLMSpanFilterForTest(sdktrace.NewSimpleSpanProcessor(exp)),
+	)
+	tr := tp.Tracer("test")
+
+	// A fan-out: agents run concurrently, so one agent's outbound HTTP span
+	// ends after another agent's LLM span has already marked the trace.
+	reqCtx, httpSpan := tr.Start(context.Background(), "POST")
+	panelCtx, panel := tr.Start(reqCtx, "nutrition.panel")
+	panel.SetAttributes(attribute.KeyValue{Key: tracing.SpanKindKey, Value: attribute.StringValue("chain")})
+
+	agentCtx, first := tr.Start(panelCtx, "gemini-draft")
+	first.SetAttributes(attribute.KeyValue{Key: tracing.SpanKindKey, Value: attribute.StringValue("llm")})
+	first.End()
+
+	// The provider call made on an agent's behalf, plus a retry.
+	for range 2 {
+		_, outbound := tr.Start(agentCtx, "HTTP POST")
+		outbound.End()
+	}
+
+	panel.End()
+	httpSpan.End()
+
+	if err := tp.ForceFlush(context.Background()); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	for _, name := range exported(exp) {
+		if name == "HTTP POST" {
+			t.Errorf("exported transport spans: %v", exported(exp))
+			break
+		}
+	}
+	if got := len(exported(exp)); got != 3 {
+		t.Errorf("exported %v, want the root, the chain, and the llm run", exported(exp))
+	}
+}
+
 func TestFilterDropsTracesWithoutLLMWork(t *testing.T) {
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(

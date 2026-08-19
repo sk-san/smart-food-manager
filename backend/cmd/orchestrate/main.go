@@ -14,7 +14,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -22,8 +21,7 @@ import (
 
 	"github.com/sk-san/smart-food-manager/backend/internal/agent"
 	"github.com/sk-san/smart-food-manager/backend/internal/config"
-	"github.com/sk-san/smart-food-manager/backend/internal/gemini"
-	"github.com/sk-san/smart-food-manager/backend/internal/mistral"
+	"github.com/sk-san/smart-food-manager/backend/internal/llm"
 	"github.com/sk-san/smart-food-manager/backend/internal/orchestrator"
 	"github.com/sk-san/smart-food-manager/backend/internal/telemetry"
 	"github.com/sk-san/smart-food-manager/backend/internal/tracing"
@@ -79,116 +77,28 @@ func run() error {
 
 	recorder := tracing.NewRecorder(nil, cfg.CaptureLLMContent())
 
-	agents, synthesizer, err := buildAgents(cfg, recorder)
+	panel, err := llm.NewPanel(cfg, recorder, "nutrition.fan_out", agentSystemPrompt)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("prompt:  %s\n", prompt)
-	fmt.Printf("agents:  %s\n", strings.Join(agentNames(agents), ", "))
+	fmt.Printf("agents:  %s\n", strings.Join(agentNames(panel.Describe()), ", "))
 	fmt.Printf("tracing: langsmith=%t content=%t project=%s\n\n",
 		cfg.LLMTracingEnabled(), cfg.CaptureLLMContent(), cfg.LangSmithProject)
 
 	started := time.Now()
-	result, runErr := orchestrator.New("nutrition.fan_out", recorder,
-		orchestrator.NewLLMSynthesizer(synthesizer), agents...).Run(ctx, prompt)
+	result, runErr := panel.Run(ctx, prompt)
 	elapsed := time.Since(started)
 
 	report(result, elapsed)
 	return runErr
 }
 
-// buildAgents wires one agent per configured provider, plus the agent that
-// merges their drafts.
-func buildAgents(cfg config.Config, recorder *tracing.Recorder) ([]agent.Agent, agent.Agent, error) {
-	var agents []agent.Agent
-	var synthesizer agent.Agent
-
-	if cfg.GeminiAPIKey != "" {
-		client := gemini.New(gemini.Config{
-			APIKey:  cfg.GeminiAPIKey,
-			BaseURL: cfg.GeminiBaseURL,
-			Model:   cfg.GeminiModel,
-			Timeout: cfg.GeminiTimeout,
-		})
-		agents = append(agents, agent.Traced(agent.NewGemini(client, agent.GeminiConfig{
-			Name:        "gemini-cook",
-			System:      agentSystemPrompt,
-			Temperature: 0.3,
-			// Thinking tokens are drawn from this budget, so a tight cap
-			// truncates the answer mid-sentence rather than shortening it.
-			MaxTokens: 3000,
-		}), recorder))
-
-		// A second model on the same client, so the fan-out compares two
-		// models even with only one provider configured. One client can serve
-		// both because the model is chosen per request.
-		if cfg.GeminiAltModel != "" && cfg.GeminiAltModel != client.Model() {
-			agents = append(agents, agent.Traced(agent.NewGemini(client, agent.GeminiConfig{
-				Name:        "gemini-alt-cook",
-				Model:       cfg.GeminiAltModel,
-				System:      agentSystemPrompt,
-				Temperature: 0.3,
-				MaxTokens:   3000,
-			}), recorder))
-		}
-
-		// Gemini Flash is the cheaper of the two, so it does the merging.
-		synthesizer = agent.Traced(agent.NewGemini(client, agent.GeminiConfig{
-			Name:        "synthesizer",
-			System:      orchestrator.SynthesisSystemPrompt,
-			Temperature: 0.2,
-			MaxTokens:   3000,
-		}), recorder)
-	}
-
-	if cfg.MistralAPIKey != "" {
-		client := mistral.New(mistral.Config{
-			APIKey:  cfg.MistralAPIKey,
-			BaseURL: cfg.MistralBaseURL,
-			Model:   cfg.MistralModel,
-			Timeout: cfg.MistralTimeout,
-		})
-		agents = append(agents, agent.Traced(agent.NewMistral(client, agent.MistralConfig{
-			Name:        "mistral-cook",
-			System:      agentSystemPrompt,
-			Temperature: 0.3,
-			MaxTokens:   1500,
-		}), recorder))
-	}
-
-	if cfg.OpenAIAPIKey != "" {
-		responder := agent.NewOpenAIResponder(cfg.OpenAIAPIKey, cfg.OpenAITimeout)
-		agents = append(agents, agent.Traced(agent.NewOpenAI(responder, agent.OpenAIConfig{
-			Name:   "openai-cook",
-			Model:  cfg.OpenAIModel,
-			System: agentSystemPrompt,
-			// Generous, because reasoning tokens are charged against this
-			// budget and a model that spends it all returns no text at all.
-			MaxTokens: 4000,
-		}), recorder))
-
-		if synthesizer == nil {
-			synthesizer = agent.Traced(agent.NewOpenAI(responder, agent.OpenAIConfig{
-				Name:      "synthesizer",
-				Model:     cfg.OpenAIModel,
-				System:    orchestrator.SynthesisSystemPrompt,
-				MaxTokens: 4000,
-			}), recorder)
-		}
-	}
-
-	if len(agents) == 0 {
-		return nil, nil, errors.New("no provider keys set: export GEMINI_API_KEY and/or OPENAI_API_KEY")
-	}
-	return agents, synthesizer, nil
-}
-
 // agentNames lists the configured agents for the run header.
-func agentNames(agents []agent.Agent) []string {
-	names := make([]string, 0, len(agents))
-	for _, a := range agents {
-		d := a.Describe()
+func agentNames(descriptors []agent.Descriptor) []string {
+	names := make([]string, 0, len(descriptors))
+	for _, d := range descriptors {
 		names = append(names, fmt.Sprintf("%s (%s)", d.Name, d.Model))
 	}
 	return names
