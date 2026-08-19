@@ -1,0 +1,54 @@
+# NOT THE LIVE TARGET. The API deploys to Railway (see railway.toml); this file
+# is kept as a working alternative, not wired to CI. Nothing else depends on it
+# — delete it if you are sure you will not go back.
+#
+# Fly.io deployment for the Go API. The frontend is deployed separately to
+# Cloudflare Pages, and Postgres is hosted on Neon — nothing stateful runs here,
+# which is what lets the machine stop when idle.
+#
+# One-time setup:
+#   fly launch --no-deploy --copy-config --name smart-food-manager-api
+#   fly secrets set DATABASE_URL=... JWT_SECRET=... LOG_HASH_SALT=... \
+#                   GEMINI_API_KEY=... MISTRAL_API_KEY=... LANGSMITH_API_KEY=...
+#
+# Keep primary_region near the Neon region: every request pays that round trip.
+
+app = "smart-food-manager-api"
+primary_region = "ams"
+
+[build]
+
+[deploy]
+  # Runs in a one-off machine on the new image before any of it takes traffic,
+  # so a failed migration aborts the release instead of half-deploying it.
+  # It is safe on every deploy: an up-to-date database is a no-op.
+  release_command = "/migrate"
+
+[env]
+  PORT = "8080"
+  SERVICE_NAME = "backend-api"
+  DEPLOYMENT_ENVIRONMENT = "production"
+  # Set ALLOWED_ORIGIN to the Pages URL (comma-separated to add previews).
+  # Secrets — DATABASE_URL, JWT_SECRET, LOG_HASH_SALT, and the provider keys —
+  # go through `fly secrets set`, never here.
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Portfolio traffic is bursty and idle most of the day, so the machine stops
+  # between requests and bills only while running. The Go binary starts in well
+  # under a second, so the wake-up cost is a fraction of the first request.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

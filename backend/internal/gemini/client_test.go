@@ -187,3 +187,50 @@ func newTestClient(baseURL string) *Client {
 	c.maxRetries = 0
 	return c
 }
+
+func TestGenerateReportsUsageIncludingThinkingTokens(t *testing.T) {
+	var captured generateContentRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A per-request model overrides the client's.
+		if r.URL.Path != "/models/other-model:generateContent" {
+			t.Errorf("path = %q, want the per-request model", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"prose reply"}]}}],` +
+			`"usageMetadata":{"promptTokenCount":73,"candidatesTokenCount":74,"thoughtsTokenCount":722,"totalTokenCount":869}}`))
+	}))
+	defer server.Close()
+
+	text, usage, err := newTestClient(server.URL).Generate(context.Background(), TextRequest{
+		System:          "system rules",
+		Prompt:          "user prompt",
+		Model:           "other-model",
+		Temperature:     0.3,
+		MaxOutputTokens: 3000,
+	})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if text != "prose reply" {
+		t.Errorf("text = %q", text)
+	}
+
+	// Thinking is billed at the output rate and drawn from the output budget,
+	// so it has to land in OutputTokens or the run looks ten times cheaper
+	// than it was.
+	want := Usage{InputTokens: 73, OutputTokens: 796, TotalTokens: 869}
+	if usage != want {
+		t.Errorf("usage = %+v, want %+v", usage, want)
+	}
+
+	// Generate leaves the output format to the caller, unlike GenerateText.
+	if captured.GenerationConfig.ResponseMIMEType != "" {
+		t.Errorf("MIME type = %q, want unset", captured.GenerationConfig.ResponseMIMEType)
+	}
+	if captured.GenerationConfig.Temperature != 0.3 || captured.GenerationConfig.MaxOutputTokens != 3000 {
+		t.Errorf("generation config = %+v", captured.GenerationConfig)
+	}
+}

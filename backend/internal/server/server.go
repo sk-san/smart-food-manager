@@ -25,7 +25,7 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(otelhttp.NewMiddleware(cfg.ServiceName))
-	r.Use(cors(cfg.AllowedOrigin))
+	r.Use(cors(cfg.AllowedOrigins))
 	r.Use(middleware.RequestContext)
 	r.Use(middleware.RequestLogger("/healthz"))
 	r.Use(chimw.Recoverer)
@@ -80,6 +80,8 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Authenticator(cfg.JWTSecret))
 			r.Get("/me", auth.Me)
+			// The account page edits one field: the display name.
+			r.Patch("/me", auth.UpdateMe)
 
 			// User-owned application data. Every query is scoped to the user id
 			// from the verified JWT; resource ids alone never grant access.
@@ -134,16 +136,34 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	return r
 }
 
-// cors is a minimal CORS middleware for the local frontend origin.
-func cors(origin string) func(http.Handler) http.Handler {
+// cors answers cross-origin requests from the configured origins.
+//
+// The request's Origin is matched against the allow-list and echoed back only
+// on a hit. Echoing whatever arrives would let any page on the internet read
+// authenticated responses on a visitor's behalf; a single fixed value, which
+// this used to send, cannot cover a production site plus its preview
+// deployments now that the frontend ships separately.
+func cors(allowed []string) func(http.Handler) http.Handler {
+	origins := make(map[string]bool, len(allowed))
+	for _, o := range allowed {
+		origins[o] = true
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Session-Id, traceparent")
-			// Without this the browser hides the quota headers from the
-			// frontend, which reads them to show a guest's remaining runs.
-			w.Header().Set("Access-Control-Expose-Headers", "X-AI-Quota-Limit, X-AI-Quota-Remaining, X-AI-Quota-Reset")
+			// Vary regardless of the outcome: the response differs by Origin,
+			// so a shared cache must not reuse one origin's copy for another.
+			w.Header().Add("Vary", "Origin")
+
+			if origin := r.Header.Get("Origin"); origins[origin] {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Session-Id, traceparent")
+				// Without this the browser hides the quota headers from the
+				// frontend, which reads them to show a guest's remaining runs.
+				w.Header().Set("Access-Control-Expose-Headers", "X-AI-Quota-Limit, X-AI-Quota-Remaining, X-AI-Quota-Reset")
+			}
+
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return

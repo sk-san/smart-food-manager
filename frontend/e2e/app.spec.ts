@@ -33,6 +33,12 @@ function headerButton(page: Page, name: string) {
   return page.locator("header").getByRole("button", { name });
 }
 
+// The monogram button. It repeats the "Account" name the nav tab carries, so it
+// is addressed as the header's own labelled child rather than by role name.
+function accountAvatar(page: Page) {
+  return page.locator('header > button[aria-label="Account"]');
+}
+
 // The active view. The header carries its own "Log Out" alongside the one in
 // the account screen, and role names match case-insensitively, so screen
 // content has to be addressed through <main>.
@@ -130,9 +136,19 @@ test.beforeEach(async ({ page }) => {
   await page.route(LOGIN_PATH, (route) =>
     route.fulfill({ status: 200, json: { token: AUTH_TOKEN } })
   );
-  await page.route(ME_PATH, (route) =>
-    route.fulfill({ status: 200, json: { user_id: "user-e2e", roles: ["user"] } })
-  );
+  // The account identity, kept in memory so a rename sticks for the rest of the
+  // test the way the users row would. A fresh account has no name of its own,
+  // so the backend hands back the local part of the address.
+  let displayName = "e2e.user";
+  await page.route(ME_PATH, (route) => {
+    if (route.request().method() === "PATCH") {
+      displayName = (route.request().postDataJSON() as { display_name: string }).display_name;
+    }
+    return route.fulfill({
+      status: 200,
+      json: { user_id: "user-e2e", roles: ["user"], email: "e2e.user@example.com", display_name: displayName },
+    });
+  });
   const savedMeals: Record<string, any>[] = [];
   let nextMealId = 1;
   let nextInventoryId = 1;
@@ -398,7 +414,10 @@ test.describe("session validation", () => {
     await page.unroute(ME_PATH);
     await page.route(ME_PATH, (route) =>
       backendAvailable
-        ? route.fulfill({ status: 200, json: { user_id: "user-e2e", roles: ["user"] } })
+        ? route.fulfill({
+            status: 200,
+            json: { user_id: "user-e2e", roles: ["user"], email: "e2e.user@example.com", display_name: "e2e.user" },
+          })
         : route.fulfill({ status: 503, json: { error: "temporarily unavailable" } })
     );
 
@@ -1231,7 +1250,41 @@ test.describe("account", () => {
     await content(page).getByRole("button", { name: "Log out" }).click();
     await signIn(page);
     await navTab(page, "Account").click();
-    await expect(page.getByText("john.doe@example.com")).toBeVisible();
+    await expect(page.getByText("e2e.user@example.com")).toBeVisible();
+  });
+
+  test("the display name starts as the email local part and can be renamed", async ({ page }) => {
+    await navTab(page, "Account").click();
+
+    // Nothing has been saved for this account yet, so the name is the part of
+    // the address before the '@'.
+    await expect(content(page).getByRole("heading", { name: "e2e.user", level: 2 })).toBeVisible();
+    // "e2e.user" reads as two words, so the monogram takes one letter from each.
+    await expect(accountAvatar(page)).toHaveText("EU");
+
+    await content(page).getByRole("button", { name: "Edit display name" }).click();
+    await page.getByLabel("Display name").fill("Ada Lovelace");
+    await page.getByRole("button", { name: "Save name" }).click();
+
+    await expect(content(page).getByRole("heading", { name: "Ada Lovelace", level: 2 })).toBeVisible();
+    // The header monogram is built from the same name.
+    await expect(accountAvatar(page)).toHaveText("AL");
+
+    // The name survives a reload because it came back from the server.
+    await page.reload();
+    await navTab(page, "Account").click();
+    await expect(content(page).getByRole("heading", { name: "Ada Lovelace", level: 2 })).toBeVisible();
+  });
+
+  test("a blank display name is refused without a request", async ({ page }) => {
+    await navTab(page, "Account").click();
+    await content(page).getByRole("button", { name: "Edit display name" }).click();
+    await page.getByLabel("Display name").fill("   ");
+    await page.getByRole("button", { name: "Save name" }).click();
+
+    await expect(page.getByRole("alert")).toHaveText("Enter a name to show on your account.");
+    await content(page).getByRole("button", { name: "Cancel" }).click();
+    await expect(content(page).getByRole("heading", { name: "e2e.user", level: 2 })).toBeVisible();
   });
 
   test("saving a new calorie goal updates the dashboard", async ({ page }) => {

@@ -16,7 +16,7 @@ func TestNewWiresAuthenticationAndAIAnalysis(t *testing.T) {
 		JWTExpiry:         time.Minute,
 		RateLimitRPS:      100,
 		RateLimitBurst:    100,
-		AllowedOrigin:     "https://app.example.com",
+		AllowedOrigins:    []string{"https://app.example.com"},
 		ServiceName:       "test-api",
 		GeminiTimeout:     time.Second,
 		GuestAIDailyLimit: 3,
@@ -70,11 +70,12 @@ func TestCORS(t *testing.T) {
 		called = true
 		w.WriteHeader(http.StatusCreated)
 	})
-	handler := cors("https://app.example.com")(next)
+	handler := cors([]string{"https://app.example.com", "https://preview.example.com"})(next)
 
 	t.Run("preflight", func(t *testing.T) {
 		called = false
 		req := httptest.NewRequest(http.MethodOptions, "/api/v1/meals", nil)
+		req.Header.Set("Origin", "https://app.example.com")
 		res := httptest.NewRecorder()
 		handler.ServeHTTP(res, req)
 		if res.Code != http.StatusNoContent {
@@ -91,10 +92,52 @@ func TestCORS(t *testing.T) {
 		}
 	})
 
+	t.Run("second allowed origin is echoed back", func(t *testing.T) {
+		// A preview deployment is its own origin; the header must name the
+		// caller, never the list.
+		req := httptest.NewRequest(http.MethodOptions, "/api/v1/meals", nil)
+		req.Header.Set("Origin", "https://preview.example.com")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if got := res.Header().Get("Access-Control-Allow-Origin"); got != "https://preview.example.com" {
+			t.Errorf("allow origin = %q, want the requesting origin", got)
+		}
+	})
+
+	t.Run("unknown origin gets no grant", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Origin", "https://evil.example.com")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		// The request still runs — CORS is enforced in the browser — but
+		// without the header the response is unreadable to that page.
+		if got := res.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("allow origin = %q, want none for an unlisted origin", got)
+		}
+		if !called {
+			t.Error("request did not reach the handler")
+		}
+	})
+
+	t.Run("response varies by origin", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Origin", "https://app.example.com")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		// Without Vary a shared cache could hand one origin's allowed
+		// response to another.
+		if got := res.Header().Get("Vary"); !strings.Contains(got, "Origin") {
+			t.Errorf("Vary = %q, want it to include Origin", got)
+		}
+	})
+
 	t.Run("ordinary request", func(t *testing.T) {
 		called = false
 		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/", nil))
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Origin", "https://app.example.com")
+		handler.ServeHTTP(res, req)
 		if res.Code != http.StatusCreated || !called {
 			t.Errorf("status = %d, called = %v", res.Code, called)
 		}

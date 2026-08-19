@@ -77,20 +77,15 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
-      - name: Install psql
-        run: command -v psql >/dev/null || { sudo apt-get update && sudo apt-get install -y postgresql-client; }
-
-      # docker-compose applies these via docker-entrypoint-initdb.d, which a
-      # service container cannot do. Running them through the same DSN the
-      # suite uses also makes a broken database fail HERE: startSuite() calls
-      # t.Skip when the DB is unreachable, so without this step a
-      # misconfigured service container would report a green, empty run.
+      # The same migrator the deploy runs as its release command, so CI
+      # exercises the production migration path on every run rather than a
+      # psql loop that only resembles it. Running it through the DSN the suite
+      # uses also makes a broken database fail HERE: startSuite() calls t.Skip
+      # when the DB is unreachable, so without this step a misconfigured
+      # service container would report a green, empty run.
       - name: Apply migrations
-        run: |
-          for f in backend/migrations/*.sql; do
-            echo "applying $f"
-            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
-          done
+        working-directory: backend
+        run: go run ./cmd/migrate
 
       - name: E2E tests
         working-directory: backend

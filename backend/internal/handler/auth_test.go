@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -207,39 +208,190 @@ func TestLoginRejectsInvalidCredentials(t *testing.T) {
 	}
 }
 
-func TestMe(t *testing.T) {
-	h := NewAuthHandler(nil, "me-test-secret", time.Minute)
+func TestValidateDisplayName(t *testing.T) {
+	tests := []struct {
+		name      string
+		raw       string
+		want      string
+		wantError string
+	}{
+		{name: "trims surrounding space", raw: "  Ada Lovelace  ", want: "Ada Lovelace"},
+		{name: "keeps non-ascii names", raw: "佐藤 翔", want: "佐藤 翔"},
+		{name: "empty", raw: "   ", wantError: "display name is required"},
+		{name: "too long", raw: strings.Repeat("a", displayNameMaxRunes+1),
+			wantError: "display name must be 60 characters or fewer"},
+		{name: "counts runes, not bytes", raw: strings.Repeat("あ", displayNameMaxRunes)},
+		{name: "control characters", raw: "Ada\nLovelace",
+			wantError: "display name must not contain control characters"},
+	}
 
-	t.Run("rejects missing claims", func(t *testing.T) {
-		res := httptest.NewRecorder()
-		h.Me(res, httptest.NewRequest(http.MethodGet, "/api/v1/me", nil))
-		if res.Code != http.StatusUnauthorized {
-			t.Errorf("status = %d, want 401", res.Code)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := validateDisplayName(tt.raw)
+			if tt.wantError != "" {
+				if err == nil || err.Error() != tt.wantError {
+					t.Fatalf("error = %v, want %q", err, tt.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateDisplayName: %v", err)
+			}
+			if tt.want != "" && got != tt.want {
+				t.Errorf("name = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
-	t.Run("returns authenticated claims", func(t *testing.T) {
-		token, err := middleware.NewToken("me-test-secret", "user-456", []string{"user"}, time.Minute)
-		if err != nil {
-			t.Fatalf("NewToken: %v", err)
-		}
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		res := httptest.NewRecorder()
-		middleware.Authenticator("me-test-secret")(http.HandlerFunc(h.Me)).ServeHTTP(res, req)
+const (
+	accountTestSecret = "account-test-secret"
+	testUserID        = "6f9619ff-8b86-d011-b42d-00c04fc964ff"
+)
 
-		if res.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200", res.Code)
-		}
-		var payload struct {
-			UserID string   `json:"user_id"`
-			Roles  []string `json:"roles"`
-		}
-		if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
-			t.Fatalf("decode response: %v", err)
-		}
-		if payload.UserID != "user-456" || len(payload.Roles) != 1 || payload.Roles[0] != "user" {
-			t.Errorf("payload = %+v", payload)
-		}
-	})
+// serveAccount runs an account handler behind the real Authenticator, so the
+// handler sees claims exactly as a signed request produces them.
+func serveAccount(t *testing.T, h http.HandlerFunc, method, userID, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	token, err := middleware.NewToken(accountTestSecret, userID, []string{"user"}, time.Minute)
+	if err != nil {
+		t.Fatalf("NewToken: %v", err)
+	}
+	var payload io.Reader
+	if body != "" {
+		payload = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, "/api/v1/me", payload)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res := httptest.NewRecorder()
+	middleware.Authenticator(accountTestSecret)(h).ServeHTTP(res, req)
+	return res
+}
+
+func TestMeReturnsAccountIdentity(t *testing.T) {
+	db := &fakeAuthDB{row: fakeRow{scan: func(dest ...any) error {
+		*(dest[0].(*string)) = "user@example.com"
+		*(dest[1].(*string)) = "user"
+		return nil
+	}}}
+	h := NewAuthHandler(db, accountTestSecret, time.Minute)
+
+	res := serveAccount(t, h.Me, http.MethodGet, testUserID, "")
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", res.Code, res.Body.String())
+	}
+	if len(db.args) != 1 || db.args[0] != testUserID {
+		t.Errorf("query args = %v, want the token subject", db.args)
+	}
+	var got currentUser
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode /me response: %v", err)
+	}
+	want := currentUser{UserID: testUserID, Roles: []string{"user"}, Email: "user@example.com", DisplayName: "user"}
+	if got.UserID != want.UserID || got.Email != want.Email || got.DisplayName != want.DisplayName {
+		t.Errorf("account = %+v, want %+v", got, want)
+	}
+}
+
+func TestMeRejectsAnUnauthenticatedRequest(t *testing.T) {
+	db := &fakeAuthDB{}
+	h := NewAuthHandler(db, accountTestSecret, time.Minute)
+	res := httptest.NewRecorder()
+
+	// No Authenticator in front, so the context carries no claims at all.
+	h.Me(res, httptest.NewRequest(http.MethodGet, "/api/v1/me", nil))
+
+	if res.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", res.Code)
+	}
+	if db.queryRuns != 0 {
+		t.Errorf("query runs = %d, want 0", db.queryRuns)
+	}
+}
+
+func TestMeRejectsTokensWithoutAUserRow(t *testing.T) {
+	tests := []struct {
+		name   string
+		userID string
+		db     *fakeAuthDB
+		// Whether the handler is expected to reach the database at all.
+		wantQueries int
+	}{
+		{name: "subject is not a uuid", userID: "user-123", db: &fakeAuthDB{}},
+		{name: "account deleted or deactivated", userID: testUserID, wantQueries: 1,
+			db: &fakeAuthDB{row: fakeRow{scan: func(...any) error { return pgx.ErrNoRows }}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewAuthHandler(tt.db, accountTestSecret, time.Minute)
+
+			res := serveAccount(t, h.Me, http.MethodGet, tt.userID, "")
+
+			if res.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want 401", res.Code)
+			}
+			if tt.db.queryRuns != tt.wantQueries {
+				t.Errorf("query runs = %d, want %d", tt.db.queryRuns, tt.wantQueries)
+			}
+		})
+	}
+}
+
+func TestUpdateMeSavesTheTrimmedDisplayName(t *testing.T) {
+	db := &fakeAuthDB{row: fakeRow{scan: func(dest ...any) error {
+		*(dest[0].(*string)) = "user@example.com"
+		*(dest[1].(*string)) = "Ada Lovelace"
+		return nil
+	}}}
+	h := NewAuthHandler(db, accountTestSecret, time.Minute)
+
+	res := serveAccount(t, h.UpdateMe, http.MethodPatch, testUserID, `{"display_name":"  Ada Lovelace "}`)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", res.Code, res.Body.String())
+	}
+	if len(db.args) != 2 || db.args[0] != testUserID || db.args[1] != "Ada Lovelace" {
+		t.Errorf("query args = %v, want the token subject and the trimmed name", db.args)
+	}
+	if !strings.Contains(db.query, "WHERE id = $1 AND is_active") {
+		t.Errorf("update is not scoped to the active token subject: %s", db.query)
+	}
+	var got currentUser
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.DisplayName != "Ada Lovelace" || got.Email != "user@example.com" {
+		t.Errorf("account = %+v, want the saved name and address", got)
+	}
+}
+
+func TestUpdateMeRejectsInvalidBodiesBeforeWriting(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "malformed JSON", body: `{`},
+		{name: "missing name", body: `{}`},
+		{name: "blank name", body: `{"display_name":"   "}`},
+		{name: "name too long", body: `{"display_name":"` + strings.Repeat("a", displayNameMaxRunes+1) + `"}`},
+		{name: "unknown field", body: `{"display_name":"Ada","email":"attacker@example.com"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := &fakeAuthDB{}
+			h := NewAuthHandler(db, accountTestSecret, time.Minute)
+
+			res := serveAccount(t, h.UpdateMe, http.MethodPatch, testUserID, tt.body)
+
+			if res.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", res.Code)
+			}
+			if db.queryRuns != 0 {
+				t.Errorf("query runs = %d, want 0", db.queryRuns)
+			}
+		})
+	}
 }

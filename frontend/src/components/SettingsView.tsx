@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { DailyGoal, DEMO_ACCOUNT_STATS, SUGGESTED_GOALS, UserProfile } from '../types/nutrition';
-import { BookOpen, Bell, CircleDashed, LogOut, Moon, Rows3, Volume2 } from 'lucide-react';
+import { BookOpen, Bell, CircleDashed, LogOut, Moon, Pencil, Rows3, Volume2 } from 'lucide-react';
+import { DISPLAY_NAME_MAX_LENGTH } from '../services/accountService';
 import { DASHBOARD_LAYOUTS, DashboardLayout } from '../preferences';
 
 interface SettingsViewProps {
@@ -10,8 +11,10 @@ interface SettingsViewProps {
   onToggleDark: () => void;
   /** Clears the authenticated session and returns to sign-in. */
   onSignOut: () => void;
-  /** Identity to display — the demo account, or a guest role from the bypass. */
+  /** Identity to display — the signed-in account, or the guest bypass role. */
   profile: UserProfile;
+  /** Saves a new display name. Absent for a guest, whose identity is local. */
+  onUpdateDisplayName?: (name: string) => Promise<void>;
   dashboardLayout: DashboardLayout;
   onDashboardLayoutChange: (layout: DashboardLayout) => void;
 }
@@ -83,9 +86,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   onToggleDark,
   onSignOut,
   profile,
+  onUpdateDisplayName,
   dashboardLayout,
   onDashboardLayoutChange,
 }) => {
+  const [nameDraft, setNameDraft] = useState(profile.name);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [showNameSaved, setShowNameSaved] = useState(false);
+
   const [localGoals, setLocalGoals] = useState<DailyGoal>(goals);
   const [isDirty, setIsDirty] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
@@ -95,6 +105,53 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   useEffect(() => {
     if (!isDirty) setLocalGoals(goals);
   }, [goals, isDirty]);
+
+  // The name arrives with the /me response, after this screen can already be
+  // on display. Adopt it — but never overwrite what the user is typing.
+  useEffect(() => {
+    if (!isEditingName) setNameDraft(profile.name);
+  }, [profile.name, isEditingName]);
+
+  const startEditingName = () => {
+    setNameDraft(profile.name);
+    setNameError(null);
+    setIsEditingName(true);
+  };
+
+  const cancelEditingName = () => {
+    setNameDraft(profile.name);
+    setNameError(null);
+    setIsEditingName(false);
+  };
+
+  const handleSaveName = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!onUpdateDisplayName || isSavingName) return;
+
+    const name = nameDraft.trim();
+    if (name === '') {
+      setNameError('Enter a name to show on your account.');
+      return;
+    }
+    if (name === profile.name) {
+      setIsEditingName(false);
+      return;
+    }
+
+    setIsSavingName(true);
+    setNameError(null);
+    try {
+      await onUpdateDisplayName(name);
+      setIsEditingName(false);
+      setShowNameSaved(true);
+      setTimeout(() => setShowNameSaved(false), 2000);
+    } catch (error) {
+      console.error(error);
+      setNameError('Your name could not be saved. Check your connection and try again.');
+    } finally {
+      setIsSavingName(false);
+    }
+  };
 
   const handleChange = (field: keyof DailyGoal, value: string) => {
     const numValue = parseInt(value) || 0;
@@ -140,9 +197,59 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="grid h-[88px] w-[88px] place-items-center rounded-full bg-accent-300 font-display text-[32px] text-accent-900">
               {profile.initials}
             </div>
-            <div>
-              <h2 className="font-display text-[23px] text-ink">{profile.name}</h2>
+            <div className="w-full">
+              {isEditingName ? (
+                <form onSubmit={handleSaveName} className="flex flex-col gap-2">
+                  <label className="field-label" htmlFor="display-name">
+                    Display name
+                  </label>
+                  <input
+                    id="display-name"
+                    className="input text-center"
+                    value={nameDraft}
+                    onChange={(event) => setNameDraft(event.target.value)}
+                    maxLength={DISPLAY_NAME_MAX_LENGTH}
+                    autoFocus
+                    disabled={isSavingName}
+                  />
+                  <div className="flex justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={cancelEditingName}
+                      disabled={isSavingName}
+                      className="btn btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={isSavingName} className="btn btn-primary">
+                      {isSavingName ? 'Saving…' : 'Save name'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex items-center justify-center gap-1">
+                  <h2 className="font-display text-[23px] text-ink">{profile.name}</h2>
+                  {onUpdateDisplayName && (
+                    <button
+                      type="button"
+                      onClick={startEditingName}
+                      aria-label="Edit display name"
+                      className="rounded-full p-1.5 text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-accent-700"
+                    >
+                      <Pencil size={15} strokeWidth={2.5} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="mt-0.5 text-[13px] text-neutral-600">{profile.email}</div>
+              {nameError && (
+                <p role="alert" className="mt-1.5 text-[13px] font-semibold text-accent-800">
+                  {nameError}
+                </p>
+              )}
+              <span role="status" aria-live="polite" className="text-[13px] font-semibold text-accent-2-700">
+                {showNameSaved ? 'Name saved!' : ''}
+              </span>
             </div>
             <div className="flex flex-wrap justify-center gap-1.5">
               <span className="tag tag-accent-2 tabular-nums">{DEMO_ACCOUNT_STATS.currentStreak}-day streak</span>

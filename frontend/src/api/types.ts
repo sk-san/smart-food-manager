@@ -20,6 +20,9 @@ export interface LoginResponse {
 export interface CurrentUserResponse {
   user_id: string;
   roles: string[];
+  email: string;
+  /** Never blank: the backend falls back to the email's local part. */
+  display_name: string;
 }
 
 export interface MealResponse {

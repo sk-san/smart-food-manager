@@ -115,7 +115,7 @@ func startSuite(t *testing.T) *suite {
 			// Likewise for the guest AI cap: TestGuestAIDailyLimit runs its
 			// own server with the production default.
 			GuestAIDailyLimit: 1000,
-			AllowedOrigin:     "http://localhost:5173",
+			AllowedOrigins:    []string{"http://localhost:5173"},
 			ServiceName:       "backend-api-e2e",
 			ServiceVersion:    "test",
 			Environment:       "test",
@@ -307,6 +307,46 @@ func TestAuthAndRBAC(t *testing.T) {
 		}
 		if body["user_id"] != wantID {
 			t.Errorf("user_id = %v, want %s", body["user_id"], wantID)
+		}
+	})
+
+	t.Run("defaults the display name to the email local part, then renames", func(t *testing.T) {
+		const email = "e2e-display-name@example.com"
+		token := s.login(t, email)
+
+		// seedUser inserts no display_name, so the account starts with the
+		// part of the address before the '@'.
+		status, body := s.doJSON(t, http.MethodGet, "/api/v1/me", token, nil)
+		if status != http.StatusOK {
+			t.Fatalf("got %d, want 200 (body %v)", status, body)
+		}
+		if body["display_name"] != "e2e-display-name" || body["email"] != email {
+			t.Fatalf("identity = %v, want the seeded address and its local part", body)
+		}
+
+		status, body = s.doJSON(t, http.MethodPatch, "/api/v1/me", token,
+			map[string]string{"display_name": "  Ada Lovelace "})
+		if status != http.StatusOK {
+			t.Fatalf("patch: got %d, want 200 (body %v)", status, body)
+		}
+		if body["display_name"] != "Ada Lovelace" {
+			t.Errorf("display_name = %v, want the trimmed name", body["display_name"])
+		}
+
+		// The rename is durable, not just echoed back.
+		var stored string
+		if err := s.pool.QueryRow(context.Background(),
+			`SELECT display_name FROM users WHERE email = $1`, email).Scan(&stored); err != nil {
+			t.Fatalf("read back display name: %v", err)
+		}
+		if stored != "Ada Lovelace" {
+			t.Errorf("stored display_name = %q, want %q", stored, "Ada Lovelace")
+		}
+
+		status, _ = s.doJSON(t, http.MethodPatch, "/api/v1/me", token,
+			map[string]string{"display_name": "   "})
+		if status != http.StatusBadRequest {
+			t.Errorf("blank rename: got %d, want 400", status)
 		}
 	})
 
@@ -1034,6 +1074,10 @@ func TestCORSPreflight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
+	// A browser preflight always carries Origin, and the API now answers only
+	// the origins it recognises rather than echoing a fixed value.
+	req.Header.Set("Origin", s.cfg.AllowedOrigins[0])
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("preflight: %v", err)
@@ -1042,8 +1086,25 @@ func TestCORSPreflight(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("got %d, want 204", resp.StatusCode)
 	}
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != s.cfg.AllowedOrigin {
-		t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, s.cfg.AllowedOrigin)
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != s.cfg.AllowedOrigins[0] {
+		t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, s.cfg.AllowedOrigins[0])
+	}
+
+	// An unlisted origin must get no grant, or deploying the frontend on its
+	// own domain would still leave the API open to every other site.
+	unlisted, err := http.NewRequest(http.MethodOptions, s.api.URL+"/api/v1/nutrients", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	unlisted.Header.Set("Origin", "https://evil.example.com")
+
+	res, err := http.DefaultClient.Do(unlisted)
+	if err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+	defer res.Body.Close()
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Access-Control-Allow-Origin = %q for an unlisted origin, want none", got)
 	}
 }
 

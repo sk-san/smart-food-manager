@@ -12,6 +12,16 @@ interface DashboardViewProps {
   entries: FoodEntry[];
   /** Which of the three presentations of today to draw. Chosen in Account. */
   layout: DashboardLayout;
+  /**
+   * Guests have no history to aggregate, so the week chart falls back to the
+   * demo series to show what it becomes. Signed-in accounts plot weekCalories.
+   */
+  isGuest: boolean;
+  /**
+   * Real kcal per day for the running week, oldest first and today last,
+   * WEEK_DAYS long. Ignored for guests.
+   */
+  weekCalories: number[];
   onLogFood: () => void;
   onOpenStats: () => void;
   onHoverStart: () => void;
@@ -25,8 +35,12 @@ const CHART_GOAL_HEIGHT = 90;
 const BAR_WIDTH = 30;
 const BAR_XS = [14, 60, 106, 152, 198];
 
-// Mock intake for the four days before today — real aggregation is a
-// follow-up once entries persist through the backend.
+/** Days in the week series. One bar per x position, so the chart sets it. */
+export const WEEK_DAYS = BAR_XS.length;
+
+// Demo intake for the four days before today. Guests only: they have no
+// history to aggregate, so this stands in to show what the chart becomes.
+// Signed-in accounts plot their own meals via the weekCalories prop.
 const PREVIOUS_DAYS_KCAL = [1850, 2140, 1980, 2230];
 
 const DashboardView: React.FC<DashboardViewProps> = ({
@@ -34,6 +48,8 @@ const DashboardView: React.FC<DashboardViewProps> = ({
   goals,
   entries,
   layout,
+  isGuest,
+  weekCalories,
   onLogFood,
   onOpenStats,
   onHoverStart,
@@ -49,7 +65,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({
   const onTrack = calories <= goalCalories;
   const progressPct = goalCalories > 0 ? Math.min(100, (calories / goalCalories) * 100) : 0;
 
-  const weekValues = [...PREVIOUS_DAYS_KCAL, todayTotals.calories];
+  const weekValues = isGuest ? [...PREVIOUS_DAYS_KCAL, todayTotals.calories] : weekCalories;
   const dayLabels = weekValues.map((_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - (weekValues.length - 1 - i));
@@ -110,6 +126,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({
           goals={goals}
           entries={entries}
           weekValues={weekValues.map((kcal) => Math.round(kcal))}
+          isGuest={isGuest}
           onLogFood={onLogFood}
           onOpenStats={onOpenStats}
           onHoverStart={onHoverStart}

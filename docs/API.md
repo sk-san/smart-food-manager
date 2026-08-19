@@ -41,7 +41,7 @@ unset, the frontend uses same-origin relative URLs.
 | `POST` | `/api/v1/telemetry/logs` | Optional Bearer token | `202` | Yes |
 | `POST` | `/api/v1/nutrition/analyze` | Optional Bearer token | `200` | Yes |
 | `GET` | `/api/v1/nutrition/quota` | Optional Bearer token | `200` | Yes |
-| `GET` | `/api/v1/me` | Bearer token | `200` | Yes |
+| `GET/PATCH` | `/api/v1/me` | Bearer token | `200` | Yes |
 | `GET/POST` | `/api/v1/meals` | Bearer token | `200` / `201` | Yes |
 | `GET/PUT/DELETE` | `/api/v1/meals/{mealID}` | Bearer token | `200` / `204` | Partly |
 | `GET/PUT/DELETE` | `/api/v1/goals` | Bearer token | `200` / `204` | Yes |
@@ -556,22 +556,52 @@ Success — `200 OK` (valid token, or `GUEST_AI_DAILY_LIMIT` below zero):
 When `unlimited` is `true` the numeric fields carry no meaning and `resetAt`
 is absent. The response repeats the allowance in the `X-AI-Quota-*` headers.
 
-### 4.6 Current user claims
+### 4.6 Current user account
 
 #### `GET /api/v1/me`
 
-Requires a valid Bearer token.
+Requires a valid Bearer token. `user_id` and `roles` come from the verified
+token; `email` and `display_name` are read from the `users` row.
 
 Success — `200 OK`:
 
 ```json
 {
   "user_id": "42a11369-1cda-4d41-9858-d71d5177f442",
-  "roles": ["user"]
+  "roles": ["user"],
+  "email": "jane.doe@example.com",
+  "display_name": "jane.doe"
 }
 ```
 
-Authentication failures use the common plain-text `401` responses.
+`display_name` is never blank. An account that has never been renamed falls
+back to the local part of its address — everything before the `@` — so
+`jane.doe@example.com` starts out as `jane.doe`. Migration
+[`0004_user_display_name.sql`](../backend/migrations/0004_user_display_name.sql)
+wrote that same value into the accounts that predate the field.
+
+A token whose subject is not a `users` row — malformed, deleted, or
+deactivated — is answered with the JSON `401` envelope rather than a row.
+Authentication failures raised by the middleware itself keep using the common
+plain-text `401` responses.
+
+#### `PATCH /api/v1/me`
+
+Renames the account. The display name is the only field a caller may change;
+the request body must contain nothing else.
+
+```json
+{ "display_name": "Ada Lovelace" }
+```
+
+The name is trimmed before it is stored. Success returns the full account
+payload documented for `GET /api/v1/me`, carrying the saved name.
+
+| Status | Cause |
+| --- | --- |
+| `400` | Missing, blank, or over-long (> 60 characters) name; control characters; unknown fields in the body. |
+| `401` | Missing or invalid token, or a token whose account no longer exists. |
+| `500` | The update could not be written. |
 
 ### 4.7 Pantry, intake, expiry, and waste lifecycle
 
@@ -925,7 +955,8 @@ Behavior:
 
 | Frontend source | Method and path | Trigger | Failure behavior |
 | --- | --- | --- | --- |
-| `App` | `GET /api/v1/me` | Startup with a persisted token | Clears the token on `401`; preserves it and presents a retry screen on network or server failure. |
+| `accountService.getCurrentUser` | `GET /api/v1/me` | Startup with a persisted token, and after a sign-in that skipped that check | Clears the token on `401`; preserves it and presents a retry screen on network or server failure. After sign-in the identity is chrome, so a failure leaves the placeholder standing. |
+| `accountService.updateDisplayName` | `PATCH /api/v1/me` | Save a new name on the account page | Keeps the editor open and reports that the name could not be saved. |
 | `LoginView` | `POST /api/v1/auth/login` | Sign-in form submit | Shows “Invalid email or password” for every error type. |
 | `nutritionService.analyzeFoodInput` | `POST /api/v1/nutrition/analyze` | Analyze text or a food photo | Text falls back to a deterministic estimate; image failures stay explicit. A spent guest quota throws `AiQuotaExceededError` in both modes. |
 | `nutritionService.getAiQuota` | `GET /api/v1/nutrition/quota` | `AddEntryModal` opens for a guest | Reports the caller as unlimited, leaving the cap to the backend. |

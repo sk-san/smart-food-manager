@@ -3,12 +3,15 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -18,11 +21,97 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
+// Option configures Setup. Options exist so extra span destinations can be
+// added without every caller of Setup having to name them.
+type Option func(*options)
+
+type options struct {
+	langsmithAPIKey   string
+	langsmithProject  string
+	langsmithEndpoint string
+}
+
+// WithLangSmith also exports spans to LangSmith, for reading LLM runs as a
+// trace tree. An empty apiKey turns it off, which is the default: without a key
+// the app traces exactly as before, to the collector alone. An empty endpoint
+// uses the SDK's (api.smith.langchain.com).
+func WithLangSmith(apiKey, project, endpoint string) Option {
+	return func(o *options) {
+		o.langsmithAPIKey = apiKey
+		o.langsmithProject = project
+		o.langsmithEndpoint = endpoint
+	}
+}
+
+// LangSmith OTLP ingestion details.
+const (
+	defaultLangSmithHost  = "api.smith.langchain.com"
+	langsmithTracesPath   = "/otel/v1/traces"
+	langsmithBatchTimeout = time.Second
+)
+
+// langsmithExporter builds the OTLP/HTTP exporter that ships spans to
+// LangSmith.
+//
+// The exporter is assembled here rather than through langsmith.NewOTel because
+// that helper configures it with otlptracehttp.WithEndpoint, which leaves the
+// transport scheme to the environment. OTEL_EXPORTER_OTLP_INSECURE is global
+// and this service sets it for its local collector, so the LangSmith export
+// would silently downgrade to http:// — which the API answers with 405. Only
+// WithEndpointURL pins the scheme per exporter.
+func langsmithExporter(ctx context.Context, cfg options) (sdktrace.SpanExporter, error) {
+	host := normalizeOTLPEndpoint(cfg.langsmithEndpoint)
+	if host == "" {
+		host = defaultLangSmithHost
+	}
+	return otlptracehttp.New(ctx,
+		otlptracehttp.WithEndpointURL("https://"+host+langsmithTracesPath),
+		otlptracehttp.WithHeaders(map[string]string{
+			"x-api-key":         cfg.langsmithAPIKey,
+			"Langsmith-Project": cfg.langsmithProject,
+		}),
+	)
+}
+
+// normalizeOTLPEndpoint reduces an endpoint to the "host[:port]" form the OTLP
+// HTTP exporter requires. LangSmith documents its regional endpoints as URLs
+// (https://eu.api.smith.langchain.com), but otlptracehttp.WithEndpoint takes a
+// host and appends its own path, so a scheme left in place would be treated as
+// part of the hostname and every export would fail DNS resolution.
+//
+// Only TLS endpoints are reachable this way: langsmith-go builds the exporter
+// without exposing WithInsecure, so a plaintext host is not expressible.
+func normalizeOTLPEndpoint(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return ""
+	}
+	if scheme, rest, found := strings.Cut(endpoint, "://"); found {
+		if !strings.EqualFold(scheme, "https") {
+			slog.Warn("langsmith endpoint scheme ignored; the exporter always uses TLS",
+				"scheme", scheme, "endpoint", endpoint)
+		}
+		endpoint = rest
+	}
+	// The exporter appends its own /otel/v1/traces path.
+	host, _, _ := strings.Cut(endpoint, "/")
+	return host
+}
+
 // Setup initialises the global OTel trace, metric, and log providers.
 // The returned shutdown function must be called on process exit.
 // All providers export via OTLP gRPC; the endpoint is controlled by the
 // standard OTEL_EXPORTER_OTLP_ENDPOINT environment variable (default: localhost:4317).
-func Setup(ctx context.Context, serviceName, serviceVersion, environment string) (func(context.Context) error, error) {
+//
+// Additional span destinations (see WithLangSmith) are registered as extra
+// processors on this one tracer provider, rather than as a second provider, so
+// every exporter sees whole traces and the resource attributes stay consistent.
+func Setup(ctx context.Context, serviceName, serviceVersion, environment string, opts ...Option) (func(context.Context) error, error) {
+	var cfg options
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	// NewSchemaless (rather than NewWithAttributes + semconv.SchemaURL) avoids a
 	// "conflicting Schema URL" error from resource.Merge when the SDK's
 	// resource.Default() carries a newer semconv schema than the one imported
@@ -53,6 +142,27 @@ func Setup(ctx context.Context, serviceName, serviceVersion, environment string)
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	))
+
+	// LangSmith attaches as one more span processor on tp, so both
+	// destinations see whole traces and share the resource attributes above.
+	// (langsmith-go's NewOTelTracer would instead build its own provider and
+	// install it globally, replacing this one and dropping the collector
+	// export.)
+	//
+	// A misconfigured LangSmith key must not cost the app its telemetry, so a
+	// failure here is a warning rather than an error. slog is still writing to
+	// stderr at this point in startup.
+	if cfg.langsmithAPIKey != "" {
+		exp, err := langsmithExporter(ctx, cfg)
+		if err != nil {
+			slog.Warn("langsmith tracing unavailable, exporting spans to the collector only", "error", err)
+		} else {
+			tp.RegisterSpanProcessor(sdktrace.NewBatchSpanProcessor(exp,
+				sdktrace.WithBatchTimeout(langsmithBatchTimeout),
+			))
+			slog.Info("langsmith tracing enabled", "project", cfg.langsmithProject)
+		}
+	}
 
 	metricExp, err := otlpmetricgrpc.New(ctx)
 	if err != nil {

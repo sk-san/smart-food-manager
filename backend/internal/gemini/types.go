@@ -44,7 +44,11 @@ type generateContentResponse struct {
 	UsageMetadata struct {
 		PromptTokenCount     int `json:"promptTokenCount"`
 		CandidatesTokenCount int `json:"candidatesTokenCount"`
-		TotalTokenCount      int `json:"totalTokenCount"`
+		// ThoughtsTokenCount is the reasoning the model was billed for but
+		// did not return. It is charged at the output rate and counts against
+		// maxOutputTokens, so it belongs in the output total.
+		ThoughtsTokenCount int `json:"thoughtsTokenCount"`
+		TotalTokenCount    int `json:"totalTokenCount"`
 	} `json:"usageMetadata"`
 	PromptFeedback *struct {
 		BlockReason string `json:"blockReason"`
