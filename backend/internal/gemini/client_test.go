@@ -221,7 +221,9 @@ func TestGenerateReportsUsageIncludingThinkingTokens(t *testing.T) {
 	// Thinking is billed at the output rate and drawn from the output budget,
 	// so it has to land in OutputTokens or the run looks ten times cheaper
 	// than it was.
-	want := Usage{InputTokens: 73, OutputTokens: 796, TotalTokens: 869}
+	// Reasoning is reported separately as well, so a trace can show that 700+
+	// of those output tokens were thinking rather than answer.
+	want := Usage{InputTokens: 73, OutputTokens: 796, TotalTokens: 869, ReasoningTokens: 722}
 	if usage != want {
 		t.Errorf("usage = %+v, want %+v", usage, want)
 	}
