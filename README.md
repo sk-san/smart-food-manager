@@ -16,6 +16,28 @@ better and waste less without taking on a second job to do it.
 
 ---
 
+## Demo
+
+**AI nutrient analysis.** A visitor takes *continue as guest*, scans the bundled sample meal,
+and gets a review screen rather than a verdict: four separate foods, each with editable
+nutrients, an estimated expiry date, and a storage location. Confirming writes all four to
+today's intake **and** to the pantry in one action — the two payoffs from one photo that
+[§4](#4-from-issue-to-implementation) argues for — and the day's total, the recent-log list,
+and the weekly stats fill in behind it.
+
+https://github.com/user-attachments/assets/7f783abd-e608-4827-9fc3-e6fe85a7f5fb
+
+**The environmental cost of food waste.** The larder opens with its footprint at zero.
+Discarding 250 g of rice and beans — reason: *forgot it was there*, one of the seven the
+picker offers — turns that panel into **1.11 kg CO₂e**, **635 L of virtual water**, and
+**0.019 urban tree-years**, attributed back to the item that caused it. The numbers are
+computed at read time from published category factors, not stored
+([§6](#6-food-loss-instrumentation-the-most-opinionated-part-of-the-schema)).
+
+https://github.com/user-attachments/assets/d271a020-a509-4a1e-9237-8bc59d2b9981
+
+---
+
 ## 1. Research: what the numbers said
 
 Three findings shaped the product. They are working estimates used to *size* the problem
