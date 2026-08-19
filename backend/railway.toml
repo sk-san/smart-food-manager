@@ -1,0 +1,42 @@
+# Railway deployment for the Go API. The frontend deploys separately to
+# Cloudflare Pages; Postgres is a service in this same Railway project, so
+# DATABASE_URL is injected as a reference variable and queries never leave
+# Railway's private network.
+#
+# This file lives beside the Dockerfile because the service's Root Directory is
+# set to `backend` — Railway reads the config from the service root, not the
+# repository root.
+#
+# Config defined here overrides the dashboard for the deployment it ships with,
+# so the dashboard's own values are left showing whatever they were; treat this
+# file as the source of truth.
+#
+# One-time setup:
+#   railway init --name smart-food-manager
+#   railway add --database postgres
+#   # Create the API service, set its Root Directory to `backend`, then:
+#   railway variables --set 'DATABASE_URL=${{Postgres.DATABASE_URL}}' \
+#                     --set 'ALLOWED_ORIGIN=https://smart-food-manager.pages.dev'
+#   railway variables --set JWT_SECRET=... --set LOG_HASH_SALT=... \
+#                     --set GEMINI_API_KEY=... --set MISTRAL_API_KEY=... \
+#                     --set LANGSMITH_API_KEY=...
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Runs in a separate container off the new image, with the service's variables,
+# before the new version takes traffic — so a failed migration aborts the
+# release instead of leaving the API on a schema it does not expect. Safe on
+# every deploy: an up-to-date database is a no-op.
+preDeployCommand = ["/migrate"]
+
+healthcheckPath = "/healthz"
+healthcheckTimeout = 30
+
+# Restart a crashed container, but stop after a few attempts so a container
+# that cannot start (bad config, unreachable database) surfaces as a failed
+# deployment rather than a silent restart loop.
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

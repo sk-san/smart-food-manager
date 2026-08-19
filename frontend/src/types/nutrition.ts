@@ -77,9 +77,9 @@ export class PartialScanSaveError extends Error {
   }
 }
 
-// Presentational identity for the signed-in user. The auth endpoint currently
-// returns only a token, so the default account chrome remains static; the guest
-// bypass swaps it out so the testing bypass is visible.
+// Presentational identity for the signed-in user, built from `GET /api/v1/me`
+// by accountService; the guest bypass swaps it out so the testing bypass is
+// visible.
 export interface UserProfile {
   name: string;
   email: string;
@@ -87,11 +87,13 @@ export interface UserProfile {
   tag: string;
 }
 
-export const DEFAULT_PROFILE: UserProfile = {
-  name: "John Doe",
-  email: "john.doe@example.com",
-  initials: "JD",
-  tag: "since March",
+// Stand-in for the moment between entering the app and /me answering. It names
+// nobody, so a slow response never shows an identity that is not the user's.
+export const PENDING_PROFILE: UserProfile = {
+  name: "Your account",
+  email: "",
+  initials: "",
+  tag: "loading",
 };
 
 // Identity used by the sign-in screen's auth bypass (testing only).

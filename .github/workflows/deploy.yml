@@ -1,0 +1,131 @@
+# Deploys the two halves independently: a frontend-only commit never restarts
+# the API, and a backend-only commit never rebuilds the site.
+#
+# Required repository secrets:
+#   RAILWAY_TOKEN            — a Railway *project* token (scoped to one environment)
+#   CLOUDFLARE_API_TOKEN     — token with the "Cloudflare Pages: Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID
+# Required repository variables:
+#   RAILWAY_SERVICE          — the API service's name in the Railway project
+#   API_BASE_URL             — e.g. https://smart-food-manager-api.up.railway.app
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Manual re-deploys, for rolling back or re-pointing the frontend at a new
+  # API URL without an empty commit.
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which half to deploy
+        type: choice
+        options: [both, backend, frontend]
+        default: both
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false # never interrupt a release mid-migration
+
+permissions:
+  contents: read
+
+jobs:
+  # A filter job rather than top-level `paths:` — a job skipped by a path
+  # filter reports "pending" forever if it is ever made a required check,
+  # which would block every merge that did not touch that half.
+  changes:
+    name: Detect changed halves
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/deploy.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/deploy.yml'
+
+  backend:
+    name: Deploy API (Railway)
+    needs: changes
+    if: |
+      github.event_name == 'push' && needs.changes.outputs.backend == 'true' ||
+      github.event_name == 'workflow_dispatch' && contains(fromJSON('["both","backend"]'), inputs.target)
+    runs-on: ubuntu-latest
+    # Deploys are serialised across branches: two releases running the
+    # pre-deploy migration against one database at once is what this prevents.
+    concurrency:
+      group: deploy-backend
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+
+      # --ci streams the build and exits when it finishes, so a failed build or
+      # a failed preDeployCommand (the migration) fails this job. Without it the
+      # CLI would return as soon as the upload completed and a broken release
+      # would look green here.
+      #
+      # Deploying from Actions rather than Railway's GitHub integration keeps
+      # both halves in this one path-filtered workflow — leave the service
+      # disconnected from the repo in Railway, or every push deploys twice.
+      # Uploaded from the repository root, with the service's Root Directory
+      # set to `backend` — the same arrangement Railway's own GitHub
+      # integration uses for a monorepo. Running this from backend/ instead
+      # would hand Railway an archive whose root is already backend/, and the
+      # Root Directory setting would then look for backend/backend.
+      - name: Deploy
+        run: railway up --service "${{ vars.RAILWAY_SERVICE }}" --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  frontend:
+    name: Deploy site (Cloudflare Pages)
+    needs: changes
+    if: |
+      github.event_name == 'push' && needs.changes.outputs.frontend == 'true' ||
+      github.event_name == 'workflow_dispatch' && contains(fromJSON('["both","frontend"]'), inputs.target)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Vite inlines VITE_API_BASE_URL at build time, so the API URL is baked
+      # into the bundle here. Changing which API the site talks to means
+      # rebuilding it — a workflow_dispatch with target=frontend does that.
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
+          VITE_APP_VERSION: ${{ github.sha }}
+
+      - name: Publish
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy frontend/dist --project-name=smart-food-manager

@@ -14,7 +14,7 @@ endif
 POSTGRES_USER ?= app
 POSTGRES_DB   ?= foodapp
 
-.PHONY: help db-up db-down migrate backend frontend tidy install build clean obs-up obs-down test test-e2e test-e2e-frontend
+.PHONY: help db-up db-down migrate migrate-status migrate-baseline backend frontend tidy install build clean obs-up obs-down test test-e2e test-e2e-frontend
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -26,11 +26,14 @@ db-up: ## Start Postgres + Adminer (migrations auto-run on first init)
 db-down: ## Stop and remove the database containers and volume
 	docker compose down -v
 
-migrate: ## Apply migrations manually against the running db
-	@for f in backend/migrations/*.sql; do \
-		echo "applying $$f"; \
-		docker compose exec -T db psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -v ON_ERROR_STOP=1 < $$f; \
-	done
+migrate: ## Apply outstanding migrations (same runner the deploy uses)
+	cd backend && go run ./cmd/migrate
+
+migrate-status: ## Show which migrations would be applied, changing nothing
+	cd backend && go run ./cmd/migrate -dry-run
+
+migrate-baseline: ## Mark migrations as applied without running them (db built before the runner existed)
+	cd backend && go run ./cmd/migrate -baseline
 
 backend: ## Run the Go API (hot path: go run)
 	cd backend && go run ./cmd/api

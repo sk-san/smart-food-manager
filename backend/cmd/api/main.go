@@ -29,8 +29,11 @@ func main() {
 	logging.SetHashSalt(cfg.LogHashSalt)
 
 	// Bootstrap OTel before anything else so all log records are exported.
-	// Falls back to stderr logging if the collector is unreachable.
-	otelShutdown, err := telemetry.Setup(ctx, cfg.ServiceName, cfg.ServiceVersion, cfg.Environment)
+	// Falls back to stderr logging if the collector is unreachable. When a
+	// LangSmith key is configured, LLM spans are exported there too, from this
+	// same tracer provider.
+	otelShutdown, err := telemetry.Setup(ctx, cfg.ServiceName, cfg.ServiceVersion, cfg.Environment,
+		telemetry.WithLangSmith(cfg.LangSmithExportKey(), cfg.LangSmithProject, cfg.LangSmithEndpoint))
 	if err != nil {
 		slog.Warn("telemetry unavailable, falling back to stderr", "error", err)
 	} else {

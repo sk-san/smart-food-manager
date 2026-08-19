@@ -177,8 +177,10 @@ full local observability stack.
 | Backend       | Go 1.25, chi router, pgx (Postgres), golang-jwt                       |
 | Database      | PostgreSQL 16                                                         |
 | Auth          | JWT (HS256) + RBAC middleware                                         |
-| AI            | Google Gemini (`generateContent`) via an instrumented HTTP client     |
+| AI            | Google Gemini (`generateContent`); Mistral and OpenAI join the fan-out |
 | Observability | OpenTelemetry (OTLP/gRPC) → Collector → Loki, Tempo, Prometheus, Grafana |
+| LLM tracing   | LangSmith (optional), fed by the same OTel tracer provider            |
+| Deployment    | Railway (API + Postgres), Cloudflare Pages (frontend)                 |
 | Infra         | Docker Compose (Postgres, Adminer, optional app + monitoring profiles) |
 
 Also in place: per-IP rate limiting, PII-safe hashed identifiers in logs, CI via GitHub
@@ -190,12 +192,17 @@ Actions, and end-to-end tests on both sides.
 smart-food-manager/
 ├── backend/                    Go API service
 │   ├── cmd/api/                main entrypoint (graceful shutdown)
+│   ├── cmd/orchestrate/        CLI that runs one prompt through the fan-out
 │   ├── internal/
 │   │   ├── config/             env-based configuration
 │   │   ├── server/             router + route wiring + CORS
 │   │   ├── middleware/         JWT auth, RBAC, rate limiting, request logging
 │   │   ├── handler/            health, auth, meals, goals, inventory, waste, labels, telemetry
 │   │   ├── gemini/             Google Gemini API client (AI features)
+│   │   ├── mistral/            Mistral chat-completions client (fan-out agent)
+│   │   ├── agent/              one LLM call behind an interface (Gemini, Mistral, OpenAI)
+│   │   ├── orchestrator/       fans a prompt across agents, merges the answers
+│   │   ├── tracing/            LangSmith-shaped spans for LLM runs
 │   │   ├── logging/            structured event logging (bridged to OTel)
 │   │   ├── telemetry/          OpenTelemetry setup + metric instruments
 │   │   └── store/              pgx connection pool
@@ -251,6 +258,14 @@ OTEL_EXPORTER_OTLP_INSECURE=true                              # plaintext collec
 
 # Gemini AI — leave blank to run without AI features.
 GEMINI_API_KEY=
+
+# Mistral / OpenAI — optional; each adds a provider to the multi-agent fan-out.
+MISTRAL_API_KEY=
+OPENAI_API_KEY=
+
+# LangSmith LLM tracing — leave blank to keep LLM spans on the collector only.
+LANGSMITH_API_KEY=
+LANGSMITH_PROJECT=smart-food-manager
 ```
 
 > **Port note:** `make db-up` exposes Postgres on host port **5433** by default (to avoid clashing
@@ -259,9 +274,13 @@ GEMINI_API_KEY=
 > `DB_HOST_PORT=5432`) in `.env` so the two agree.
 
 Other backend variables (all optional, with defaults): `PORT`, `JWT_EXPIRY_MINUTES`,
-`RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`, `ALLOWED_ORIGIN`, `GUEST_AI_DAILY_LIMIT`, `SERVICE_NAME`,
+`RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`, `ALLOWED_ORIGIN` (comma-separated for previews),
+`GUEST_AI_DAILY_LIMIT`, `SERVICE_NAME`,
 `SERVICE_VERSION`, `DEPLOYMENT_ENVIRONMENT`, `GEMINI_BASE_URL`, `GEMINI_MODEL`,
-`GEMINI_TIMEOUT_SECONDS`.
+`GEMINI_TIMEOUT_SECONDS`, `GEMINI_ALT_MODEL`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_SECONDS`,
+`MISTRAL_MODEL`, `MISTRAL_BASE_URL`, `MISTRAL_TIMEOUT_SECONDS`,
+`LANGSMITH_PROJECT`, `LANGSMITH_ENDPOINT`, `LANGSMITH_TRACING`,
+`LANGSMITH_CAPTURE_CONTENT`.
 `GUEST_AI_DAILY_LIMIT` (default `3`) caps how many AI analyses a visitor without an account may
 run per UTC day, counted per client IP; `-1` removes the cap and `0` closes AI analysis to guests
 entirely. Signed-in callers are never capped.
@@ -350,6 +369,45 @@ Tear it down with `make obs-down`. Telemetry is best-effort: if the collector is
 the backend logs a warning and falls back to stderr logging. See
 [`observability/README.md`](observability/README.md) for the logging blueprint and dashboards.
 
+### LLM tracing (LangSmith)
+
+Set `LANGSMITH_API_KEY` (and leave `LANGSMITH_TRACING` at `true`) and multi-agent LLM work
+shows up in LangSmith as a run tree — a `chain` run for the fan-out with one `llm` run per
+agent underneath, each carrying its model, prompt, answer, and token usage. Leave the key
+blank and nothing changes: the spans are ordinary OTel spans and still reach Tempo.
+
+Exercise it without an HTTP route:
+
+```bash
+set -a; . ./.env; set +a
+cd backend && go run ./cmd/orchestrate "what should I cook with lentils and spinach?"
+```
+
+The fan-out compares two Gemini models (`GEMINI_MODEL` and `GEMINI_ALT_MODEL`), and adds a
+Mistral or OpenAI agent for each of `MISTRAL_API_KEY` / `OPENAI_API_KEY` that is set. An agent
+whose provider fails is dropped from the merge rather than failing the run, so the roster can
+exceed what a given key can actually reach.
+
+LangSmith attaches as a second span processor on the tracer provider `telemetry.Setup`
+already builds, rather than through `langsmith.NewOTelTracer`, which would install a provider
+of its own and take the collector export and the service resource attributes with it. Two
+things follow from sharing one provider:
+
+- **The exporter pins its own scheme.** `OTEL_EXPORTER_OTLP_INSECURE=true` is set here for the
+  local collector, but that variable is global: left to it, the LangSmith exporter downgrades
+  to `http://` and every export fails with `405 Method Not Allowed`. `telemetry` builds the
+  exporter with `otlptracehttp.WithEndpointURL` so TLS is fixed per exporter. `LANGSMITH_ENDPOINT`
+  may be a URL (`https://eu.api.smith.langchain.com`) or a bare host; both are normalised.
+- **Every span is exported, not just LLM ones.** HTTP client and server spans land in the
+  LangSmith project as generic `chain` runs. That is what keeps a run tree whole when its
+  parent is an ordinary HTTP span, and it is why the export stays off unless a key is set. The
+attribute conventions LangSmith reads (`langsmith.span.kind`, `gen_ai.prompt`,
+`langsmith.usage_metadata`, …) live in one place, [`internal/tracing`](backend/internal/tracing/tracing.go).
+
+Prompt and answer text is attached to spans only while LangSmith is enabled, since those
+spans also reach the collector and the logging design otherwise keeps user text out of the
+telemetry backend. `LANGSMITH_CAPTURE_CONTENT=false` records metadata and token counts alone.
+
 ## Tests
 
 ```bash
@@ -400,6 +458,97 @@ TOKEN=$(curl -s localhost:8080/api/v1/auth/login -H 'Content-Type: application/j
 
 The login example requires a matching active user and bcrypt password hash in the database;
 the application does not currently expose a signup endpoint.
+
+## Deployment
+
+The two halves deploy independently from this one repository:
+
+| Piece | Host | Cost |
+| --- | --- | --- |
+| Go API | Railway service, built from `backend/Dockerfile` | ~$1.40/mo usage |
+| Postgres | Railway service in the same project | ~$2.90/mo usage |
+| Frontend | Cloudflare Pages | $0 |
+
+Railway's Hobby plan is **$5/mo including $5 of usage credit**, so the two services above fit
+inside it — the bill is the plan fee. Keeping Postgres on Railway rather than a separate
+provider costs a little more than a free external tier, and buys a private network hop instead
+of a public-internet one, plus a database that is never cold. [`backend/fly.toml`](backend/fly.toml)
+is kept as a working Fly.io + external-Postgres alternative, but nothing deploys it.
+
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) decides what to ship from which
+paths changed, so a frontend-only commit never restarts the API. It uses a `changes` job rather
+than a top-level `paths:` filter: a job skipped by a path filter reports "pending" forever if it
+is ever made a required check, which would block every merge that did not touch that half.
+
+### Migrations
+
+`backend/migrations/*.sql` are embedded in the image and applied by a small runner
+([`cmd/migrate`](backend/cmd/migrate/main.go)) that records each file in a `schema_migrations`
+table and wraps it in a transaction. [`railway.toml`](backend/railway.toml) runs it as
+`preDeployCommand`, in a separate container off the new image with the service's variables,
+before the new version takes traffic — so a failed migration aborts the release instead of
+leaving the API running against a schema it does not expect.
+
+It has to be a Go binary rather than a `psql` loop for two reasons: the runtime image is
+distroless, so there is no shell and no `psql`; and the migrations are not idempotent
+(`CREATE TYPE` without `IF NOT EXISTS`), so re-running them all on every deploy would fail on
+the second one. Both constraints are platform-independent, which is why moving between hosts
+touches only the deploy config.
+
+```bash
+make migrate            # apply what is outstanding
+make migrate-status     # dry run: report only, change nothing
+make migrate-baseline   # record migrations as applied WITHOUT running them
+```
+
+`make migrate-baseline` is for a database whose schema predates the runner — the development
+database built by docker-compose, which applied the same files through
+`docker-entrypoint-initdb.d` before `schema_migrations` existed. Run it once per such database;
+a freshly provisioned Railway database needs only the pre-deploy command.
+
+### One-time setup
+
+```bash
+# 1. Project and database
+railway init --name smart-food-manager
+railway add --database postgres
+
+# 2. API service — create it, then set its Root Directory to `backend` so
+#    Railway picks up backend/railway.toml and backend/Dockerfile. The deploy
+#    workflow uploads from the repository root and relies on this setting.
+railway variables --set 'DATABASE_URL=${{Postgres.DATABASE_URL}}' \
+                  --set JWT_SECRET=… --set LOG_HASH_SALT=… \
+                  --set GEMINI_API_KEY=… --set MISTRAL_API_KEY=… \
+                  --set LANGSMITH_API_KEY=…
+railway up            # first deploy; generates the public domain
+
+# 3. Site — create a Cloudflare Pages project named smart-food-manager,
+#    then point the API at its origin:
+railway variables --set ALLOWED_ORIGIN="https://smart-food-manager.pages.dev"
+```
+
+`DATABASE_URL` is a *reference* variable: Railway resolves `${{Postgres.DATABASE_URL}}` from the
+database service, so credentials are never copied around and rotate with it.
+
+Then add to the repository: secrets `RAILWAY_TOKEN` (a project token), `CLOUDFLARE_API_TOKEN`,
+`CLOUDFLARE_ACCOUNT_ID`, and the variables `RAILWAY_SERVICE` (the API service's name) and
+`API_BASE_URL` (its public URL).
+
+Leave the Railway service **disconnected from GitHub**. Deploys go through
+[`deploy.yml`](.github/workflows/deploy.yml) so both halves stay in one path-filtered workflow;
+connecting the repo in Railway as well would deploy the backend twice on every push.
+
+### Two things that must line up
+
+- **`VITE_API_BASE_URL` is baked in at build time.** Vite inlines it, so pointing the site at a
+  different API is a rebuild, not an environment change — run the deploy workflow manually with
+  `target: frontend`.
+- **`ALLOWED_ORIGIN` must name every origin that calls the API**, comma-separated. Production and
+  each Cloudflare preview deployment are separate origins; the API echoes back only origins on
+  the list and sends nothing for the rest.
+
+Put the Railway project in a region near your users: the API and database talk over the private
+network, so it is the browser round trip that dominates.
 
 ## Before shipping
 

@@ -2,7 +2,7 @@ import { Fragment, lazy, Suspense, useState, useEffect, useLayoutEffect, useMemo
 import { Camera, Carrot, LayoutGrid, Leaf, Loader2, Plus, RefreshCw, TrendingUp, User, LogOut } from "lucide-react";
 import AddEntryModal from "./components/AddEntryModal";
 import CompanionCharacter from "./components/CompanionCharacter";
-import DashboardView from "./components/DashboardView";
+import DashboardView, { WEEK_DAYS } from "./components/DashboardView";
 import MobileDashboardView from "./components/MobileDashboardView";
 import LoginView from "./components/LoginView";
 import PantryView from "./components/PantryView";
@@ -11,11 +11,12 @@ import {
   FoodEntry,
   DailyGoal,
   SUGGESTED_GOALS,
-  DEFAULT_PROFILE,
+  PENDING_PROFILE,
   GUEST_PROFILE,
   NutritionData,
   PartialScanSaveError,
   ScannedFoodInput,
+  UserProfile,
 } from "./types/nutrition";
 import {
   DashboardLayout,
@@ -23,8 +24,8 @@ import {
   writeDashboardLayout,
 } from "./preferences";
 import { logNavigation, logScreenView } from "./telemetry/events";
-import { ApiError, apiGet, getToken, setToken } from "./api/client";
-import type { CurrentUserResponse } from "./api/types";
+import { ApiError, getToken, setToken } from "./api/client";
+import { getCurrentUser, updateDisplayName } from "./services/accountService";
 import { LarderItem, NewLarderItem, SEED_LARDER, WasteEvent } from "./types/pantry";
 import {
   consumeInventoryItem,
@@ -171,7 +172,10 @@ function App() {
   const [calendarDay, setCalendarDay] = useState(initialCalendarDay.current);
   const [savedDataRefresh, setSavedDataRefresh] = useState(0);
 
-  const profile = isGuest ? GUEST_PROFILE : DEFAULT_PROFILE;
+  // Who the account page and the header monogram describe. Null until /me
+  // answers, so nothing claims an identity the server has not confirmed.
+  const [account, setAccount] = useState<UserProfile | null>(null);
+  const profile = isGuest ? GUEST_PROFILE : account ?? PENDING_PROFILE;
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
 
   // Where the reader had each tab scrolled to. Without this, switching tabs
@@ -246,6 +250,7 @@ function App() {
     setAuthState("unauthenticated");
     setAuthError(null);
     setIsGuest(false);
+    setAccount(null);
     setEntries(INITIAL_ENTRIES);
     setGoals(SUGGESTED_GOALS);
     setPantryItems([]);
@@ -281,9 +286,11 @@ function App() {
 
     let cancelled = false;
     setAuthError(null);
-    apiGet<CurrentUserResponse>("/api/v1/me")
-      .then(() => {
-        if (!cancelled) setAuthState("authenticated");
+    getCurrentUser()
+      .then((loaded) => {
+        if (cancelled) return;
+        setAccount(loaded);
+        setAuthState("authenticated");
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -302,6 +309,25 @@ function App() {
       cancelled = true;
     };
   }, [authState]);
+
+  // Signing in through the form reaches "authenticated" without passing the
+  // token check above, so the identity is loaded here instead. The account is
+  // chrome rather than data, so a failure leaves the placeholder standing
+  // rather than blocking the app behind an error.
+  useEffect(() => {
+    if (authState !== "authenticated" || isGuest || account || !getToken()) return;
+
+    let cancelled = false;
+    getCurrentUser()
+      .then((loaded) => {
+        if (!cancelled) setAccount(loaded);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authState, isGuest, account]);
 
   useEffect(() => {
     if (authState !== "authenticated" || isGuest || !getToken()) return;
@@ -435,6 +461,22 @@ function App() {
     return entries.filter((entry) => entry.timestamp >= start && entry.timestamp < end);
   }, [calendarDay, entries]);
 
+  // Real kcal per day for the running week, oldest first and today last, so
+  // the dashboard's week chart plots actual meals for a signed-in account.
+  // Bucketed by local calendar day, the same way todayEntries is, and taken
+  // from `entries` because the meals endpoint returns the whole history.
+  const weekCalories = useMemo(() => {
+    const now = new Date();
+    return Array.from({ length: WEEK_DAYS }, (_, i) => {
+      const offset = WEEK_DAYS - 1 - i;
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset).getTime();
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset + 1).getTime();
+      return entries
+        .filter((entry) => entry.timestamp >= start && entry.timestamp < end)
+        .reduce((sum, entry) => sum + entry.calories, 0);
+    });
+  }, [calendarDay, entries]);
+
   const todayTotals = useMemo(() => {
     return todayEntries.reduce(
       (acc, curr) => ({
@@ -560,6 +602,10 @@ function App() {
     ));
     setDataError(null);
     showToast(scanSavedToast(newItems));
+  };
+
+  const handleUpdateDisplayName = async (name: string) => {
+    setAccount(await updateDisplayName(name));
   };
 
   const handleUpdateGoals = async (next: DailyGoal) => {
@@ -921,6 +967,8 @@ function App() {
                 goals={goals}
                 entries={todayEntries}
                 layout={dashboardLayout}
+                isGuest={isGuest}
+                weekCalories={weekCalories}
                 onLogFood={() => setIsModalOpen(true)}
                 onOpenStats={() => handleTabChange("history")}
                 onHoverStart={handleContentHoverStart}
@@ -958,6 +1006,7 @@ function App() {
             onToggleDark={handleToggleDark}
             onSignOut={handleLogout}
             profile={profile}
+            onUpdateDisplayName={isGuest ? undefined : handleUpdateDisplayName}
             dashboardLayout={dashboardLayout}
             onDashboardLayoutChange={handleDashboardLayoutChange}
           />

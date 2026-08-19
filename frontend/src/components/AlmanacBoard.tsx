@@ -9,6 +9,11 @@ interface AlmanacBoardProps {
   entries: FoodEntry[];
   /** Kcal per day for the running week, today last — for the sparkline. */
   weekValues: number[];
+  /**
+   * Guests read the demo account's averages beneath the sparkline; signed-in
+   * accounts get theirs derived from weekValues.
+   */
+  isGuest: boolean;
   onLogFood: () => void;
   onOpenStats: () => void;
   onHoverStart: () => void;
@@ -27,6 +32,7 @@ const AlmanacBoard: React.FC<AlmanacBoardProps> = ({
   goals,
   entries,
   weekValues,
+  isGuest,
   onLogFood,
   onOpenStats,
   onHoverStart,
@@ -64,6 +70,18 @@ const AlmanacBoard: React.FC<AlmanacBoardProps> = ({
     return { x, y };
   });
   const lastPoint = points[points.length - 1];
+
+  // Week summary beneath the sparkline. A day with nothing logged is absence
+  // of data, not a 0 kcal day, so it is left out of the average and breaks the
+  // streak rather than counting as a day inside the goal.
+  const loggedDays = weekValues.filter((kcal) => kcal > 0);
+  const avgCalories =
+    loggedDays.length > 0 ? Math.round(loggedDays.reduce((a, b) => a + b, 0) / loggedDays.length) : 0;
+  let goalStreak = 0;
+  for (let i = weekValues.length - 1; i >= 0; i -= 1) {
+    if (weekValues[i] <= 0 || weekValues[i] > goals.calories) break;
+    goalStreak += 1;
+  }
 
   return (
     <div className="mx-auto w-full max-w-[540px]" onMouseEnter={onHoverStart} onMouseLeave={onHoverEnd}>
@@ -156,8 +174,26 @@ const AlmanacBoard: React.FC<AlmanacBoardProps> = ({
             <circle cx={lastPoint.x} cy={lastPoint.y} r="4.5" fill="var(--color-accent-700)" />
           </svg>
           <div className="text-[13px] leading-normal text-neutral-700">
-            Averaging <strong className="tabular-nums">{DEMO_ACCOUNT_STATS.avgCalories.toLocaleString('en-US')} kcal</strong>.{' '}
-            {DEMO_ACCOUNT_STATS.currentStreak} straight days inside the goal — the best run this month.
+            {isGuest ? (
+              <>
+                Averaging{' '}
+                <strong className="tabular-nums">
+                  {DEMO_ACCOUNT_STATS.avgCalories.toLocaleString('en-US')} kcal
+                </strong>
+                . {DEMO_ACCOUNT_STATS.currentStreak} straight days inside the goal — the best run this month.
+              </>
+            ) : loggedDays.length === 0 ? (
+              <>Nothing logged this week yet — today starts the line.</>
+            ) : (
+              <>
+                Averaging{' '}
+                <strong className="tabular-nums">{avgCalories.toLocaleString('en-US')} kcal</strong> across{' '}
+                {loggedDays.length} {loggedDays.length === 1 ? 'day' : 'days'}.
+                {goalStreak > 0
+                  ? ` ${goalStreak} straight ${goalStreak === 1 ? 'day' : 'days'} inside the goal.`
+                  : ''}
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -41,6 +41,27 @@ type Config struct {
 	MaxRetries int
 }
 
+// Usage reports the tokens one generateContent call consumed. It is what
+// drives cost attribution on LLM traces.
+type Usage struct {
+	InputTokens  int
+	OutputTokens int
+	TotalTokens  int
+}
+
+// TextRequest is a single-turn text generation. Unset fields fall back to the
+// client's defaults: the configured model, the API's default temperature
+// (Temperature 0 is sent as "unset", matching the wire format's omitempty),
+// and plain-text output.
+type TextRequest struct {
+	System          string
+	Prompt          string
+	Model           string
+	Temperature     float64
+	MaxOutputTokens int
+	MIMEType        string
+}
+
 // Client is an HTTP client for the Google Gemini generateContent API.
 type Client struct {
 	httpClient *http.Client
@@ -78,23 +99,44 @@ func New(cfg Config) *Client {
 	}
 }
 
+// Model reports the model requests go to when a TextRequest does not name one.
+// Traces read it so a span records the model actually used.
+func (c *Client) Model() string { return c.model }
+
 // GenerateText sends a single-turn prompt (with an optional system
-// instruction) and returns the model's text reply.
+// instruction) and returns the model's text reply. It fixes the settings the
+// app's extraction endpoints expect: JSON output at a low temperature. Callers
+// that need prose, another model, or the token usage should use Generate.
 func (c *Client) GenerateText(ctx context.Context, system, prompt string) (string, error) {
+	text, _, err := c.Generate(ctx, TextRequest{
+		System:      system,
+		Prompt:      prompt,
+		Temperature: 0.2,
+		MIMEType:    "application/json",
+	})
+	return text, err
+}
+
+// Generate performs a single-turn text generation and returns the reply
+// alongside its token usage. Unlike GenerateText it leaves the output format,
+// temperature, and model to the caller, so one client can serve several agents
+// with different roles and models.
+func (c *Client) Generate(ctx context.Context, req TextRequest) (string, Usage, error) {
 	if c.apiKey == "" {
-		return "", ErrMissingAPIKey
+		return "", Usage{}, ErrMissingAPIKey
 	}
 	reqBody := generateContentRequest{
-		Contents: []Content{{Role: "user", Parts: []Part{{Text: prompt}}}},
+		Contents: []Content{{Role: "user", Parts: []Part{{Text: req.Prompt}}}},
 		GenerationConfig: &GenerationConfig{
-			Temperature:      0.2,
-			ResponseMIMEType: "application/json",
+			Temperature:      req.Temperature,
+			MaxOutputTokens:  req.MaxOutputTokens,
+			ResponseMIMEType: req.MIMEType,
 		},
 	}
-	if system != "" {
-		reqBody.SystemInstruction = &Content{Parts: []Part{{Text: system}}}
+	if req.System != "" {
+		reqBody.SystemInstruction = &Content{Parts: []Part{{Text: req.System}}}
 	}
-	return c.generate(ctx, reqBody, "gemini.generate_text")
+	return c.generate(ctx, req.Model, reqBody, "gemini.generate_text")
 }
 
 // GenerateFromImage sends an image (inline base64) plus a prompt and returns
@@ -117,62 +159,77 @@ func (c *Client) GenerateFromImage(ctx context.Context, system, prompt, mimeType
 	if system != "" {
 		reqBody.SystemInstruction = &Content{Parts: []Part{{Text: system}}}
 	}
-	return c.generate(ctx, reqBody, "gemini.generate_from_image")
+	text, _, err := c.generate(ctx, "", reqBody, "gemini.generate_from_image")
+	return text, err
 }
 
 // generate marshals the request, performs the instrumented HTTP call with
-// retries, and returns the first candidate's text. The call is wrapped with
-// logging.StartExternalCall, so only metadata (token counts, sizes) is logged
-// — never the prompt or response text.
-func (c *Client) generate(ctx context.Context, reqBody generateContentRequest, action string) (string, error) {
+// retries, and returns the first candidate's text plus its token usage. An
+// empty model falls back to the client's configured one. The call is wrapped
+// with logging.StartExternalCall, so only metadata (token counts, sizes) is
+// logged — never the prompt or response text.
+func (c *Client) generate(ctx context.Context, model string, reqBody generateContentRequest, action string) (string, Usage, error) {
+	if model == "" {
+		model = c.model
+	}
+
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("gemini: marshal request: %w", err)
+		return "", Usage{}, fmt.Errorf("gemini: marshal request: %w", err)
 	}
 
 	done := logging.StartExternalCall(ctx, logging.Dependency{
 		Provider:  "google",
 		Service:   "gemini-api",
 		Operation: "generateContent",
-		Model:     c.model,
+		Model:     model,
 	}, action)
 
-	body, status, err := c.doWithRetry(ctx, payload)
+	body, status, err := c.doWithRetry(ctx, model, payload)
 	if err != nil {
 		done(status, err, slog.Int("request.size_bytes", len(payload)))
-		return "", err
+		return "", Usage{}, err
 	}
 
 	var parsed generateContentResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		done(status, err)
-		return "", fmt.Errorf("gemini: decode response: %w", err)
+		return "", Usage{}, fmt.Errorf("gemini: decode response: %w", err)
+	}
+
+	// Thinking tokens are billed as output and consume the output budget, so
+	// leaving them out would under-report the cost of a reasoning model by an
+	// order of magnitude.
+	usage := Usage{
+		InputTokens:  parsed.UsageMetadata.PromptTokenCount,
+		OutputTokens: parsed.UsageMetadata.CandidatesTokenCount + parsed.UsageMetadata.ThoughtsTokenCount,
+		TotalTokens:  parsed.UsageMetadata.TotalTokenCount,
 	}
 
 	if parsed.PromptFeedback != nil && parsed.PromptFeedback.BlockReason != "" {
 		done(status, ErrBlocked, slog.String("block_reason", parsed.PromptFeedback.BlockReason))
-		return "", ErrBlocked
+		return "", usage, ErrBlocked
 	}
 	if len(parsed.Candidates) == 0 || len(parsed.Candidates[0].Content.Parts) == 0 {
 		done(status, ErrNoContent)
-		return "", ErrNoContent
+		return "", usage, ErrNoContent
 	}
 
 	done(status, nil,
-		slog.Int("tokens.prompt", parsed.UsageMetadata.PromptTokenCount),
-		slog.Int("tokens.output", parsed.UsageMetadata.CandidatesTokenCount),
-		slog.Int("tokens.total", parsed.UsageMetadata.TotalTokenCount),
+		slog.Int("tokens.prompt", usage.InputTokens),
+		slog.Int("tokens.output", usage.OutputTokens),
+		slog.Int("tokens.total", usage.TotalTokens),
 	)
 
-	return parsed.Candidates[0].Content.Parts[0].Text, nil
+	return parsed.Candidates[0].Content.Parts[0].Text, usage, nil
 }
 
 // doWithRetry POSTs the payload, retrying transient failures (network errors
 // and 429/5xx) with exponential backoff. It returns the raw 200 body, the last
 // HTTP status seen, and the final error (if any). Context cancellation is never
 // retried.
-func (c *Client) doWithRetry(ctx context.Context, payload []byte) ([]byte, int, error) {
-	url := fmt.Sprintf("%s/models/%s:generateContent", c.baseURL, c.model)
+func (c *Client) doWithRetry(ctx context.Context, model string, payload []byte) ([]byte, int, error) {
+	url := fmt.Sprintf("%s/models/%s:generateContent", c.baseURL, model)
 
 	var lastStatus int
 	var lastErr error

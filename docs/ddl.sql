@@ -64,7 +64,7 @@ CREATE TABLE users (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email          CITEXT NOT NULL UNIQUE,     -- JWT subject is the email
     password_hash  TEXT,
-    display_name   TEXT,
+    display_name   TEXT,                       -- user-editable; seeded from the email local part
     is_active      BOOLEAN NOT NULL DEFAULT TRUE,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()

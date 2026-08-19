@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/mail"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -145,14 +149,109 @@ func logLoginAttempt(ctx context.Context, ok bool, reason string, d time.Duratio
 	))
 }
 
-func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+// currentUser is the account identity behind GET and PATCH /api/v1/me. The id
+// and roles come from the verified token; the address and name are read from
+// the users row so an edit made in another tab is visible on the next load.
+type currentUser struct {
+	UserID      string   `json:"user_id"`
+	Roles       []string `json:"roles"`
+	Email       string   `json:"email"`
+	DisplayName string   `json:"display_name"`
+}
+
+// displayNameExpr resolves the name to show for an account. Rows created before
+// migration 0004, and any inserted without a name since, fall back to the local
+// part of the address so the account page never renders a blank identity.
+const displayNameExpr = `COALESCE(NULLIF(btrim(display_name), ''), split_part(email::text, '@', 1))`
+
+const displayNameMaxRunes = 60
+
+// validateDisplayName trims the submitted name and rejects what the account
+// page could not render as a single line of text.
+func validateDisplayName(raw string) (string, error) {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return "", errors.New("display name is required")
+	}
+	if utf8.RuneCountInString(name) > displayNameMaxRunes {
+		return "", fmt.Errorf("display name must be %d characters or fewer", displayNameMaxRunes)
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return "", errors.New("display name must not contain control characters")
+		}
+	}
+	return name, nil
+}
+
+// accountFromClaims rejects a token whose subject could never match a users
+// row, so a malformed id fails as unauthorized rather than as a query error.
+func accountFromClaims(r *http.Request) (currentUser, bool) {
 	claims, ok := middleware.ClaimsFromContext(r.Context())
+	if !ok || uuid.Validate(claims.UserID) != nil {
+		return currentUser{}, false
+	}
+	return currentUser{UserID: claims.UserID, Roles: claims.Roles}, true
+}
+
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	user, ok := accountFromClaims(r)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user_id": claims.UserID,
-		"roles":   claims.Roles,
-	})
+
+	err := h.db.QueryRow(r.Context(), `
+		SELECT email, `+displayNameExpr+`
+		FROM users
+		WHERE id = $1 AND is_active`, user.UserID).Scan(&user.Email, &user.DisplayName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The token is well-formed but its account is gone or deactivated.
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load account")
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+
+type updateAccountRequest struct {
+	DisplayName string `json:"display_name"`
+}
+
+// UpdateMe saves the display name the user typed on the account page. It is the
+// only account field the API lets a caller change.
+func (h *AuthHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	user, ok := accountFromClaims(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req updateAccountRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	name, err := validateDisplayName(req.DisplayName)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	err = h.db.QueryRow(r.Context(), `
+		UPDATE users
+		SET display_name = $2, updated_at = now()
+		WHERE id = $1 AND is_active
+		RETURNING email, `+displayNameExpr, user.UserID, name).Scan(&user.Email, &user.DisplayName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not save display name")
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
 }
