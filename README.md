@@ -16,6 +16,28 @@ better and waste less without taking on a second job to do it.
 
 ---
 
+## Demo
+
+**AI nutrient analysis.** A visitor takes *continue as guest*, scans the bundled sample meal,
+and gets a review screen rather than a verdict: four separate foods, each with editable
+nutrients, an estimated expiry date, and a storage location. Confirming writes all four to
+today's intake **and** to the pantry in one action — the two payoffs from one photo that
+[§4](#4-from-issue-to-implementation) argues for — and the day's total, the recent-log list,
+and the weekly stats fill in behind it.
+
+https://github.com/user-attachments/assets/7f783abd-e608-4827-9fc3-e6fe85a7f5fb
+
+**The environmental cost of food waste.** The larder opens with its footprint at zero.
+Discarding 250 g of rice and beans — reason: *forgot it was there*, one of the seven the
+picker offers — turns that panel into **1.11 kg CO₂e**, **635 L of virtual water**, and
+**0.019 urban tree-years**, attributed back to the item that caused it. The numbers are
+computed at read time from published category factors, not stored
+([§6](#6-food-loss-instrumentation-the-most-opinionated-part-of-the-schema)).
+
+https://github.com/user-attachments/assets/d271a020-a509-4a1e-9237-8bc59d2b9981
+
+---
+
 ## 1. Research: what the numbers said
 
 Three findings shaped the product. They are working estimates used to *size* the problem
@@ -80,6 +102,7 @@ from a user problem to the code that answers it.
 | People return to the app on their own schedule | Expiry re-checks at **browser-local midnight and on resume**; the server applies the profile timezone when deciding what expired | [`App.tsx`](frontend/src/App.tsx), [`inventory_lifecycle.go`](backend/internal/handler/inventory_lifecycle.go) |
 | An app you can't keep open on your phone isn't a daily habit | Installable **PWA** with offline app shell, rear-camera capture, and EXIF-stripped, downscaled uploads | [`sw.js`](frontend/public/sw.js), [`imageProcessing.ts`](frontend/src/services/imageProcessing.ts) |
 | Signing up before knowing whether the app is worth it is its own churn point | **Continue as guest** — the AI flow works without an account, capped server-side at `GUEST_AI_DAILY_LIMIT` analyses per day per IP, since each one costs a real Gemini call and a client-side cap is trivially bypassed | [`aiquota.go`](backend/internal/middleware/aiquota.go), [`LoginView.tsx`](frontend/src/components/LoginView.tsx) |
+| The one feature worth trying first asks you to go find a photo before you can try it | A **bundled sample meal photo** (public-domain USDA image, chosen because it holds four separable items) loads straight into the scanner | [`sampleMealPhoto.ts`](frontend/src/services/sampleMealPhoto.ts) |
 
 ## 5. Scope discipline: what this deliberately does not do
 
@@ -141,6 +164,9 @@ and prints the reason in plain text next to itself.
 | Expiry reconciliation → waste, exactly once | **Built** | Timezone-aware, history-preserving, covered by tests |
 | Structured discard taxonomy (5 dimensions + analysis bucket) | **Built** | Full enum set in schema and API |
 | Environmental impact estimates | **Built** | Versioned factors, deterministic, documented sources |
+| Weekly stats | **Built** | Seven-day intake charts on their own tab, code-split so Recharts never loads with Today ([`StatsView.tsx`](frontend/src/components/StatsView.tsx)) |
+| Account page | **Built** | Display name (`PATCH /api/v1/me`), daily goals, dark mode, and the Today layout choice ([`SettingsView.tsx`](frontend/src/components/SettingsView.tsx)) |
+| Multi-model advice panel | **Built** | `POST /api/v1/nutrients/advice/panel`, registered only when a provider key is set; no UI calls it yet |
 | Companion character | **Partial** | Animated and reactive in-app, but `POST /api/v1/companion/message` has **no backend route** — the client calls it and falls back to local messages ([`nutritionService.ts:172`](frontend/src/services/nutritionService.ts:172)) |
 | Discard reasons in the UI | **Partial** | The picker offers 7 common reasons; the schema supports all 13 |
 | Rough range language ("tends to be low") | **Not built** | The dashboard still shows precise values against goals ([`NutritionCard.tsx`](frontend/src/components/NutritionCard.tsx)). The stated design calls for range-based phrasing — this is the largest open gap between spec and code |
@@ -192,12 +218,14 @@ Actions, and end-to-end tests on both sides.
 smart-food-manager/
 ├── backend/                    Go API service
 │   ├── cmd/api/                main entrypoint (graceful shutdown)
+│   ├── cmd/migrate/            migration runner (also the deploy's preDeployCommand)
 │   ├── cmd/orchestrate/        CLI that runs one prompt through the fan-out
 │   ├── internal/
 │   │   ├── config/             env-based configuration
 │   │   ├── server/             router + route wiring + CORS
-│   │   ├── middleware/         JWT auth, RBAC, rate limiting, request logging
-│   │   ├── handler/            health, auth, meals, goals, inventory, waste, labels, telemetry
+│   │   ├── middleware/         JWT auth, RBAC, rate limiting, guest AI quota, request logging
+│   │   ├── handler/            health, auth, meals, goals, inventory + lifecycle, waste,
+│   │   │                       environmental impact, nutrition, labels, advice panel, telemetry
 │   │   ├── gemini/             Google Gemini API client (AI features)
 │   │   ├── mistral/            Mistral chat-completions client (fan-out agent)
 │   │   ├── agent/              one LLM call behind an interface (Gemini, Mistral, OpenAI)
@@ -213,16 +241,39 @@ smart-food-manager/
 ├── frontend/                   React + TS (Vite + Tailwind)
 │   ├── src/
 │   │   ├── api/                fetch client + shared types
-│   │   ├── components/         dashboard, pantry, stats, settings, companion, add-entry modal
-│   │   ├── services/           nutrition analysis, image processing, persistence
+│   │   ├── components/         Today (three layouts), stats, pantry, account,
+│   │   │                       companion, add-entry modal, planned-action stub
+│   │   ├── services/           nutrition analysis, image processing, persistence, account
 │   │   ├── telemetry/          batched frontend event logging
+│   │   ├── hooks/, types/      media queries; nutrition and pantry models
+│   │   ├── preferences.ts      per-browser display choices (Today layout)
 │   │   └── App.tsx, main.tsx   app shell + entry
+│   ├── public/                 PWA manifest, icons, offline service worker
+│   ├── e2e/                    Playwright UI tests
 │   └── Dockerfile
 ├── observability/              LGTM stack configs + provisioned Grafana dashboards
 ├── docs/                       API reference, environmental-impact method, as-built DDL
 ├── docker-compose.yml          Postgres + Adminer (+ `app` / `monitoring` profiles)
 └── Makefile                    task runner (make help)
 ```
+
+## The app in four tabs
+
+**Today** shows the day's intake against the goals, with the log-a-meal action on it.
+It has three interchangeable presentations of that same data, chosen in Account and stored
+per browser ([`preferences.ts`](frontend/src/preferences.ts)) — **Ledger** (ring gauges and
+cards), **Plate** (a 24-hour clock face with each meal set at the hour it was eaten), and
+**Almanac** (the day written out as a page, numbers in the margin). They are alternative
+*presentations* of one task rather than three tasks, so exactly one renders at a time.
+Below the `md` breakpoint a separate [`MobileDashboardView`](frontend/src/components/MobileDashboardView.tsx)
+takes over instead of reflowing the desktop one.
+
+**Stats** plots the running week's intake and macro split. It is lazy-loaded, which keeps
+Recharts out of the bundle Today needs. **Pantry** is stock grouped by urgency, the
+consume/discard forms, and the waste footprint. **Account** holds the display name, the daily
+goals, dark mode, and the Today layout choice. Guests see the same shell: history-shaped
+panels fall back to a demo series, since a visitor with no logs would otherwise meet empty
+charts on their first screen.
 
 ## Prerequisites
 
@@ -307,12 +358,18 @@ Open http://localhost:5173. Vite's development proxy exposes `/healthz` and
 [`frontend/vite.config.ts`](frontend/vite.config.ts)). Adminer (DB browser) is
 at http://localhost:8081 (server `db`, user/password from `.env`).
 
-Existing databases need the inventory-lifecycle migration before starting the
-updated API:
+A database created before a migration was added needs it applied before the updated API
+starts. The same runner the deploy uses does it locally:
 
 ```bash
-docker compose exec -T db psql -U "${POSTGRES_USER:-app}" -d "${POSTGRES_DB:-foodapp}" < backend/migrations/0003_inventory_lifecycle.sql
+make migrate-status   # report what is outstanding, change nothing
+make migrate          # apply it
 ```
+
+A development database built by `make db-up` *before* the runner existed had its files applied
+through `docker-entrypoint-initdb.d` and has no `schema_migrations` table to prove it — run
+`make migrate-baseline` once on that database first, or the runner will try to replay
+migrations the schema already has ([Migrations](#migrations)).
 
 ## Scan and pantry lifecycle
 
@@ -472,7 +529,7 @@ is reported as `502` by those handlers.
 | POST | `/api/v1/telemetry/logs` | optional Bearer | Frontend telemetry sink; a token binds events to the user |
 | POST | `/api/v1/nutrition/analyze` | optional Bearer | AI food analysis from text or an image; guests get `GUEST_AI_DAILY_LIMIT` a day |
 | GET | `/api/v1/nutrition/quota` | optional Bearer | Remaining guest AI analyses; reading it spends none |
-| GET | `/api/v1/me` | Bearer | Returns the caller's claims |
+| GET/PATCH | `/api/v1/me` | Bearer | Reads the account (claims + email + display name); `PATCH` renames it |
 | GET/POST | `/api/v1/meals` | Bearer | List and create meals (`GET/PUT/DELETE /{mealID}`) |
 | GET/PUT/DELETE | `/api/v1/goals` | Bearer | Daily nutrition goals |
 | GET/POST | `/api/v1/inventory` | Bearer | Lists active pantry stock (reconciles expiry) and creates items |
@@ -480,6 +537,7 @@ is reported as `502` by those handlers.
 | POST | `/api/v1/inventory/{id}/consume` | Bearer | Reconciles consumed, remaining, and wasted amounts |
 | GET/POST | `/api/v1/waste-events` | Bearer | Waste with environmental-impact estimates (`GET/PUT/DELETE /{eventID}`) |
 | POST | `/api/v1/nutrients/advice` | Bearer | AI nutrition advice |
+| POST | `/api/v1/nutrients/advice/panel` | Bearer | Same question to every configured model, merged; registered only when a provider key is set |
 | POST | `/api/v1/foods/from-label` | Bearer | Extract nutrients from a label image and save a food |
 | GET | `/api/v1/admin/ping` | Bearer + `admin` | RBAC example |
 
@@ -589,7 +647,7 @@ network, so it is the browser round trip that dominates.
   `GEMINI_API_KEY`.
 - Swap the in-memory rate limiter for a shared (e.g. Redis) limiter once you run more than one
   backend instance behind the API gateway.
-- Add migration tooling (e.g. `golang-migrate`) for versioned, repeatable migrations beyond the
-  Compose auto-init.
 - Wire the companion message endpoint server-side, or remove the client call and keep the local
   message generator as the intended behavior.
+- Give the multi-model panel a caller. The route and the `orchestrate` CLI both exist and are
+  traced; nothing in the UI puts a question to them yet.
