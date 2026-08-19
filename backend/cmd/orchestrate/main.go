@@ -61,7 +61,7 @@ func run() error {
 
 	// Same telemetry bootstrap as the API, so the runs land in the same
 	// LangSmith project the service would write to.
-	shutdown, err := telemetry.Setup(ctx, "orchestrate-cli", cfg.ServiceVersion, cfg.Environment,
+	tel, err := telemetry.Setup(ctx, "orchestrate-cli", cfg.ServiceVersion, cfg.Environment,
 		telemetry.WithLangSmith(cfg.LangSmithExportKey(), cfg.LangSmithProject, cfg.LangSmithEndpoint))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "warning: telemetry unavailable:", err)
@@ -71,7 +71,7 @@ func run() error {
 		defer func() {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			if err := shutdown(shutdownCtx); err != nil {
+			if err := tel.Shutdown(shutdownCtx); err != nil {
 				fmt.Fprintln(os.Stderr, "warning: telemetry shutdown:", err)
 			}
 		}()

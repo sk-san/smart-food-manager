@@ -19,3 +19,32 @@ func TestNormalizeOTLPEndpoint(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectorConfigured(t *testing.T) {
+	// Every OTLP endpoint variable is cleared first: the SDK would otherwise
+	// default to localhost:4317, which is exactly the silent fallback this
+	// check exists to avoid in a deployed service.
+	for _, k := range []string{
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+	} {
+		t.Setenv(k, "")
+	}
+	if collectorConfigured() {
+		t.Error("reported a collector with every endpoint unset")
+	}
+
+	// A signal-specific endpoint counts: a deployment may export only traces.
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:4317")
+	if !collectorConfigured() {
+		t.Error("did not report a collector when the traces endpoint is set")
+	}
+
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	if !collectorConfigured() {
+		t.Error("did not report a collector when the general endpoint is set")
+	}
+}

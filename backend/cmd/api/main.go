@@ -32,16 +32,21 @@ func main() {
 	// Falls back to stderr logging if the collector is unreachable. When a
 	// LangSmith key is configured, LLM spans are exported there too, from this
 	// same tracer provider.
-	otelShutdown, err := telemetry.Setup(ctx, cfg.ServiceName, cfg.ServiceVersion, cfg.Environment,
+	tel, err := telemetry.Setup(ctx, cfg.ServiceName, cfg.ServiceVersion, cfg.Environment,
 		telemetry.WithLangSmith(cfg.LangSmithExportKey(), cfg.LangSmithProject, cfg.LangSmithEndpoint))
 	if err != nil {
 		slog.Warn("telemetry unavailable, falling back to stderr", "error", err)
 	} else {
-		slog.SetDefault(otelslog.NewLogger(cfg.ServiceName))
+		// Only bridge slog to OTel when a collector will actually receive the
+		// records. Without one the bridge is a black hole, and the platform's
+		// own log view — the only place anyone would look — stays empty.
+		if tel.CollectorEnabled {
+			slog.SetDefault(otelslog.NewLogger(cfg.ServiceName))
+		}
 		defer func() {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := otelShutdown(shutdownCtx); err != nil {
+			if err := tel.Shutdown(shutdownCtx); err != nil {
 				slog.Error("telemetry shutdown", "error", err)
 			}
 		}()

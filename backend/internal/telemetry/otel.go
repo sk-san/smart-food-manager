@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -106,11 +107,13 @@ func normalizeOTLPEndpoint(endpoint string) string {
 // Additional span destinations (see WithLangSmith) are registered as extra
 // processors on this one tracer provider, rather than as a second provider, so
 // every exporter sees whole traces and the resource attributes stay consistent.
-func Setup(ctx context.Context, serviceName, serviceVersion, environment string, opts ...Option) (func(context.Context) error, error) {
+func Setup(ctx context.Context, serviceName, serviceVersion, environment string, opts ...Option) (*Telemetry, error) {
 	var cfg options
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+
+	collector := collectorConfigured()
 
 	// NewSchemaless (rather than NewWithAttributes + semconv.SchemaURL) avoids a
 	// "conflicting Schema URL" error from resource.Merge when the SDK's
@@ -128,15 +131,20 @@ func Setup(ctx context.Context, serviceName, serviceVersion, environment string,
 		return nil, fmt.Errorf("otel resource: %w", err)
 	}
 
-	traceExp, err := otlptracegrpc.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("trace exporter: %w", err)
-	}
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(traceExp),
+	tpOpts := []sdktrace.TracerProviderOption{
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-	)
+	}
+	if collector {
+		traceExp, err := otlptracegrpc.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("trace exporter: %w", err)
+		}
+		tpOpts = append(tpOpts, sdktrace.WithBatcher(traceExp))
+	}
+	// The provider is built either way: LangSmith registers on it below, and
+	// that export does not go through the collector.
+	tp := sdktrace.NewTracerProvider(tpOpts...)
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
@@ -164,38 +172,89 @@ func Setup(ctx context.Context, serviceName, serviceVersion, environment string,
 		}
 	}
 
-	metricExp, err := otlpmetricgrpc.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("metric exporter: %w", err)
-	}
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp,
-			sdkmetric.WithInterval(15*time.Second),
-		)),
-		sdkmetric.WithResource(res),
-	)
-	otel.SetMeterProvider(mp)
+	shutdowns := []interface{ Shutdown(context.Context) error }{tp}
 
-	logExp, err := otlploggrpc.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("log exporter: %w", err)
-	}
-	lp := sdklog.NewLoggerProvider(
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
-		sdklog.WithResource(res),
-	)
-	global.SetLoggerProvider(lp)
+	// Metrics and logs have no destination but the collector, so without one
+	// there is nothing to build. Leaving the globals as their no-op defaults
+	// is what keeps the app writing logs to stderr, where the platform picks
+	// them up — an OTel logger bridged to an unreachable collector would
+	// swallow every entry instead.
+	if collector {
+		metricExp, err := otlpmetricgrpc.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("metric exporter: %w", err)
+		}
+		mp := sdkmetric.NewMeterProvider(
+			sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp,
+				sdkmetric.WithInterval(15*time.Second),
+			)),
+			sdkmetric.WithResource(res),
+		)
+		otel.SetMeterProvider(mp)
 
-	return func(ctx context.Context) error {
-		var errs []error
-		for _, s := range []interface{ Shutdown(context.Context) error }{tp, mp, lp} {
-			if err := s.Shutdown(ctx); err != nil {
-				errs = append(errs, err)
+		logExp, err := otlploggrpc.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("log exporter: %w", err)
+		}
+		lp := sdklog.NewLoggerProvider(
+			sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
+			sdklog.WithResource(res),
+		)
+		global.SetLoggerProvider(lp)
+
+		shutdowns = append(shutdowns, mp, lp)
+	} else {
+		slog.Info("no OTLP collector configured; logs stay on stderr and metrics are not exported")
+	}
+
+	return &Telemetry{
+		CollectorEnabled: collector,
+		shutdown: func(ctx context.Context) error {
+			var errs []error
+			for _, s := range shutdowns {
+				if err := s.Shutdown(ctx); err != nil {
+					errs = append(errs, err)
+				}
 			}
-		}
-		if len(errs) > 0 {
-			return fmt.Errorf("otel shutdown: %v", errs)
-		}
-		return nil
+			if len(errs) > 0 {
+				return fmt.Errorf("otel shutdown: %v", errs)
+			}
+			return nil
+		},
 	}, nil
+}
+
+// Telemetry is a configured OTel stack. Shutdown must be called on exit.
+type Telemetry struct {
+	// CollectorEnabled reports whether an OTLP collector was configured.
+	// When false nothing exports logs, so the caller must keep writing them
+	// to stderr rather than installing the OTel log bridge.
+	CollectorEnabled bool
+
+	shutdown func(context.Context) error
+}
+
+// Shutdown flushes and stops every provider Setup installed.
+func (t *Telemetry) Shutdown(ctx context.Context) error { return t.shutdown(ctx) }
+
+// collectorConfigured reports whether an OTLP endpoint was given.
+//
+// The OTel SDK defaults an unset endpoint to localhost:4317, which is right
+// for a developer running the local stack and wrong everywhere else: a
+// deployed service with no collector would retry that address forever and,
+// worse, lose every log to a bridge that cannot deliver. Treating "unset" as
+// "no collector" makes the local case explicit — it is configured in .env —
+// and the deployed case quiet.
+func collectorConfigured() bool {
+	for _, key := range []string{
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+	} {
+		if os.Getenv(key) != "" {
+			return true
+		}
+	}
+	return false
 }
