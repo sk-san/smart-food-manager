@@ -6,9 +6,11 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -20,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Option configures Setup. Options exist so extra span destinations can be
@@ -72,6 +75,94 @@ func langsmithExporter(ctx context.Context, cfg options) (sdktrace.SpanExporter,
 			"Langsmith-Project": cfg.langsmithProject,
 		}),
 	)
+}
+
+// llmSpanKindKey duplicates tracing.SpanKindKey rather than importing it:
+// internal/logging imports this package and internal/tracing imports logging,
+// so the import would be a cycle. TestSpanKindKeyMatchesTracing keeps the two
+// from drifting.
+const llmSpanKindKey = attribute.Key("langsmith.span.kind")
+
+// llmTraceTTL bounds how long a trace stays marked as containing LLM work.
+// Every span of a request ends within seconds of the others, so this only has
+// to outlive a single request; it exists to keep the map from growing.
+const llmTraceTTL = 5 * time.Minute
+
+// llmTracesOnly forwards to LangSmith only the spans belonging to a trace that
+// contains LLM work.
+//
+// Both destinations share one tracer provider, so unfiltered every span the
+// service produces is exported — and because the browser preflights each
+// cross-origin call, CORS OPTIONS runs outnumbered real ones sixteen to four.
+// That buries the LLM runs the tool exists to show and spends the trace quota
+// on transport.
+//
+// Filtering to the LLM spans alone does not work: LangSmith discards a run
+// whose parent span it never received, so the llm run disappears along with
+// the HTTP span above it. The whole trace has to travel together. Keeping the
+// HTTP parent is not merely a workaround either — LangSmith rolls the child's
+// tokens and cost up onto it, so it is the run that shows what a request cost.
+//
+// A span is forwarded when it carries the LLM attribute, or when an earlier
+// span in the same trace did. Children end before their parents, so by the
+// time the HTTP root ends the trace is already marked.
+type llmTracesOnly struct {
+	sdktrace.SpanProcessor
+
+	mu   sync.Mutex
+	seen map[trace.TraceID]time.Time
+}
+
+// newLLMTracesOnly wraps next with the trace filter.
+func newLLMTracesOnly(next sdktrace.SpanProcessor) *llmTracesOnly {
+	return &llmTracesOnly{SpanProcessor: next, seen: map[trace.TraceID]time.Time{}}
+}
+
+// OnEnd forwards the span if its trace involves LLM work.
+func (p *llmTracesOnly) OnEnd(span sdktrace.ReadOnlySpan) {
+	traceID := span.SpanContext().TraceID()
+
+	if isLLMSpan(span) {
+		p.mark(traceID)
+		p.SpanProcessor.OnEnd(span)
+		return
+	}
+	if p.marked(traceID) {
+		p.SpanProcessor.OnEnd(span)
+	}
+}
+
+// isLLMSpan reports whether the span was produced by internal/tracing.
+func isLLMSpan(span sdktrace.ReadOnlySpan) bool {
+	for _, attr := range span.Attributes() {
+		if attr.Key == llmSpanKindKey {
+			return true
+		}
+	}
+	return false
+}
+
+// mark records the trace as carrying LLM work, sweeping expired entries so a
+// long-running service does not accumulate them.
+func (p *llmTracesOnly) mark(id trace.TraceID) {
+	now := time.Now()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for seenID, at := range p.seen {
+		if now.Sub(at) > llmTraceTTL {
+			delete(p.seen, seenID)
+		}
+	}
+	p.seen[id] = now
+}
+
+// marked reports whether this trace was already seen doing LLM work.
+func (p *llmTracesOnly) marked(id trace.TraceID) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	at, ok := p.seen[id]
+	return ok && time.Since(at) <= llmTraceTTL
 }
 
 // normalizeOTLPEndpoint reduces an endpoint to the "host[:port]" form the OTLP
@@ -165,9 +256,9 @@ func Setup(ctx context.Context, serviceName, serviceVersion, environment string,
 		if err != nil {
 			slog.Warn("langsmith tracing unavailable, exporting spans to the collector only", "error", err)
 		} else {
-			tp.RegisterSpanProcessor(sdktrace.NewBatchSpanProcessor(exp,
+			tp.RegisterSpanProcessor(newLLMTracesOnly(sdktrace.NewBatchSpanProcessor(exp,
 				sdktrace.WithBatchTimeout(langsmithBatchTimeout),
-			))
+			)))
 			slog.Info("langsmith tracing enabled", "project", cfg.langsmithProject)
 		}
 	}
