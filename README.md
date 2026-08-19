@@ -201,6 +201,7 @@ smart-food-manager/
 │   │   ├── gemini/             Google Gemini API client (AI features)
 │   │   ├── mistral/            Mistral chat-completions client (fan-out agent)
 │   │   ├── agent/              one LLM call behind an interface (Gemini, Mistral, OpenAI)
+│   │   ├── llm/                traces the model calls the handlers make
 │   │   ├── orchestrator/       fans a prompt across agents, merges the answers
 │   │   ├── tracing/            LangSmith-shaped spans for LLM runs
 │   │   ├── logging/            structured event logging (bridged to OTel)
@@ -375,8 +376,19 @@ entry rather than surface it. See
 
 ### LLM tracing (LangSmith)
 
-Set `LANGSMITH_API_KEY` (and leave `LANGSMITH_TRACING` at `true`) and multi-agent LLM work
-shows up in LangSmith as a run tree — a `chain` run for the fan-out with one `llm` run per
+Set `LANGSMITH_API_KEY` (and leave `LANGSMITH_TRACING` at `true`) and every model call the API
+makes — label extraction, meal analysis, nutrition advice — is recorded as an `llm` run named
+after the feature, carrying the prompt, the answer, the model, and the token usage.
+`internal/llm` does this by decorating the Gemini client behind the same `GenerateText` /
+`GenerateFromImage` interfaces the handlers already depend on, so no handler knows about it.
+
+Cost is derived by LangSmith from `langsmith.metadata.ls_model_name` plus the token counts, so
+the model name is set under that key specifically — `gen_ai.request.model` alone is not what the
+pricing reads. Thinking tokens are reported under `output_token_details.reasoning`: they are
+billed at the output rate and already counted in `output_tokens`, and the split is often most of
+the bill (a trivial prompt to `gemini-2.5-flash` spent 232 of its 237 output tokens thinking).
+
+Multi-agent work shows up as a run tree — a `chain` run for the fan-out with one `llm` run per
 agent underneath, each carrying its model, prompt, answer, and token usage. Leave the key
 blank and nothing changes: the spans are ordinary OTel spans and still reach Tempo.
 

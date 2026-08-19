@@ -11,7 +11,9 @@ import (
 	"github.com/sk-san/smart-food-manager/backend/internal/config"
 	"github.com/sk-san/smart-food-manager/backend/internal/gemini"
 	"github.com/sk-san/smart-food-manager/backend/internal/handler"
+	"github.com/sk-san/smart-food-manager/backend/internal/llm"
 	"github.com/sk-san/smart-food-manager/backend/internal/middleware"
+	"github.com/sk-san/smart-food-manager/backend/internal/tracing"
 )
 
 // New builds the fully-wired HTTP handler.
@@ -44,9 +46,14 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 
 	health := handler.NewHealthHandler(pool)
 	auth := handler.NewAuthHandler(pool, cfg.JWTSecret, cfg.JWTExpiry)
-	nutrients := handler.NewNutrientHandler(pool, geminiClient)
-	labels := handler.NewLabelHandler(pool, geminiClient)
-	nutrition := handler.NewNutritionHandler(geminiClient)
+	// Each feature gets its own decorator so the LangSmith run is named after
+	// what the model was asked to do, not after the transport verb. The
+	// handlers are unchanged: they depend on the GenerateText /
+	// GenerateFromImage interfaces, which the decorator satisfies.
+	recorder := tracing.NewRecorder(nil, cfg.CaptureLLMContent())
+	nutrients := handler.NewNutrientHandler(pool, llm.NewTraced(geminiClient, recorder, "nutrition.advice"))
+	labels := handler.NewLabelHandler(pool, llm.NewTraced(geminiClient, recorder, "label.extract"))
+	nutrition := handler.NewNutritionHandler(llm.NewTraced(geminiClient, recorder, "meal.analyze"))
 	frontendLogs := handler.NewTelemetryHandler()
 	meals := handler.NewMealsHandler(pool)
 	goals := handler.NewGoalsHandler(pool)

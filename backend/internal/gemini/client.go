@@ -47,6 +47,20 @@ type Usage struct {
 	InputTokens  int
 	OutputTokens int
 	TotalTokens  int
+	// ReasoningTokens is the thinking share of OutputTokens, already counted
+	// there. Kept separate so a trace can show where the output budget went.
+	ReasoningTokens int
+}
+
+// ImageRequest is a single-turn vision generation. An empty Model uses the
+// client's default.
+type ImageRequest struct {
+	System      string
+	Prompt      string
+	MIMEType    string
+	Image       []byte
+	Model       string
+	Temperature float64
 }
 
 // TextRequest is a single-turn text generation. Unset fields fall back to the
@@ -143,24 +157,36 @@ func (c *Client) Generate(ctx context.Context, req TextRequest) (string, Usage, 
 // the model's text reply. Used for photo/label vision extraction. A lower
 // temperature keeps extraction deterministic.
 func (c *Client) GenerateFromImage(ctx context.Context, system, prompt, mimeType string, image []byte) (string, error) {
+	text, _, err := c.GenerateImage(ctx, ImageRequest{
+		System:      system,
+		Prompt:      prompt,
+		MIMEType:    mimeType,
+		Image:       image,
+		Temperature: 0.1,
+	})
+	return text, err
+}
+
+// GenerateImage performs a single-turn vision generation and returns the reply
+// with its token usage, mirroring Generate for the text case.
+func (c *Client) GenerateImage(ctx context.Context, req ImageRequest) (string, Usage, error) {
 	if c.apiKey == "" {
-		return "", ErrMissingAPIKey
+		return "", Usage{}, ErrMissingAPIKey
 	}
 	reqBody := generateContentRequest{
 		Contents: []Content{{Role: "user", Parts: []Part{
-			{Text: prompt},
-			{InlineData: &Blob{MIMEType: mimeType, Data: base64.StdEncoding.EncodeToString(image)}},
+			{Text: req.Prompt},
+			{InlineData: &Blob{MIMEType: req.MIMEType, Data: base64.StdEncoding.EncodeToString(req.Image)}},
 		}}},
 		GenerationConfig: &GenerationConfig{
-			Temperature:      0.1,
+			Temperature:      req.Temperature,
 			ResponseMIMEType: "application/json",
 		},
 	}
-	if system != "" {
-		reqBody.SystemInstruction = &Content{Parts: []Part{{Text: system}}}
+	if req.System != "" {
+		reqBody.SystemInstruction = &Content{Parts: []Part{{Text: req.System}}}
 	}
-	text, _, err := c.generate(ctx, "", reqBody, "gemini.generate_from_image")
-	return text, err
+	return c.generate(ctx, req.Model, reqBody, "gemini.generate_from_image")
 }
 
 // generate marshals the request, performs the instrumented HTTP call with
@@ -201,9 +227,10 @@ func (c *Client) generate(ctx context.Context, model string, reqBody generateCon
 	// leaving them out would under-report the cost of a reasoning model by an
 	// order of magnitude.
 	usage := Usage{
-		InputTokens:  parsed.UsageMetadata.PromptTokenCount,
-		OutputTokens: parsed.UsageMetadata.CandidatesTokenCount + parsed.UsageMetadata.ThoughtsTokenCount,
-		TotalTokens:  parsed.UsageMetadata.TotalTokenCount,
+		InputTokens:     parsed.UsageMetadata.PromptTokenCount,
+		OutputTokens:    parsed.UsageMetadata.CandidatesTokenCount + parsed.UsageMetadata.ThoughtsTokenCount,
+		TotalTokens:     parsed.UsageMetadata.TotalTokenCount,
+		ReasoningTokens: parsed.UsageMetadata.ThoughtsTokenCount,
 	}
 
 	if parsed.PromptFeedback != nil && parsed.PromptFeedback.BlockReason != "" {

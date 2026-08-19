@@ -32,9 +32,13 @@ import (
 // converter looks for; gen_ai.prompt/completion in particular predate the
 // per-message semconv events and have no semconv constant.
 const (
-	spanKindKey   = attribute.Key("langsmith.span.kind")
-	traceNameKey  = attribute.Key("langsmith.trace.name")
-	sessionIDKey  = attribute.Key("langsmith.metadata.session_id")
+	spanKindKey  = attribute.Key("langsmith.span.kind")
+	traceNameKey = attribute.Key("langsmith.trace.name")
+	sessionIDKey = attribute.Key("langsmith.metadata.session_id")
+	// LangSmith prices a run by looking the model up under this key. The
+	// OTel-standard gen_ai.request.model below is not what the cost
+	// calculation reads, so both are set.
+	modelNameKey  = attribute.Key("langsmith.metadata.ls_model_name")
 	promptKey     = attribute.Key("gen_ai.prompt")
 	completionKey = attribute.Key("gen_ai.completion")
 	usageMetaKey  = attribute.Key("langsmith.usage_metadata")
@@ -73,15 +77,21 @@ type Usage struct {
 	InputTokens  int
 	OutputTokens int
 	TotalTokens  int
+	// ReasoningTokens is the share of OutputTokens the model spent thinking
+	// rather than answering. It is reported separately so the cost breakdown
+	// shows where the output budget went; it is already counted in
+	// OutputTokens, which is what providers bill on.
+	ReasoningTokens int
 }
 
 // Add returns the element-wise sum, for rolling child calls up onto the run
 // that fanned them out.
 func (u Usage) Add(other Usage) Usage {
 	return Usage{
-		InputTokens:  u.InputTokens + other.InputTokens,
-		OutputTokens: u.OutputTokens + other.OutputTokens,
-		TotalTokens:  u.TotalTokens + other.TotalTokens,
+		InputTokens:     u.InputTokens + other.InputTokens,
+		OutputTokens:    u.OutputTokens + other.OutputTokens,
+		TotalTokens:     u.TotalTokens + other.TotalTokens,
+		ReasoningTokens: u.ReasoningTokens + other.ReasoningTokens,
 	}
 }
 
@@ -152,7 +162,7 @@ func (r *Recorder) Start(ctx context.Context, run Run, input string) (context.Co
 		attrs = append(attrs, systemKey.String(run.Provider))
 	}
 	if run.Model != "" {
-		attrs = append(attrs, requestModelKey.String(run.Model))
+		attrs = append(attrs, requestModelKey.String(run.Model), modelNameKey.String(run.Model))
 	}
 	// Groups the trace into a LangSmith thread using the same session
 	// identifier the structured logs are keyed by.
@@ -182,12 +192,19 @@ func (s *Span) Succeed(output string, u Usage) {
 	// LangSmith prices the run from the usage_metadata JSON and ignores the
 	// flat keys; the flat keys are the OTel-standard names other backends read.
 	if !u.IsZero() {
-		if meta, err := json.Marshal(map[string]int{
+		meta := map[string]any{
 			"input_tokens":  u.InputTokens,
 			"output_tokens": u.OutputTokens,
 			"total_tokens":  u.TotalTokens,
-		}); err == nil {
-			attrs = append(attrs, usageMetaKey.String(string(meta)))
+		}
+		// Reported under the details key LangSmith understands, so a thinking
+		// model's output is broken down rather than looking like one long
+		// answer. It stays inside output_tokens, which is what is billed.
+		if u.ReasoningTokens > 0 {
+			meta["output_token_details"] = map[string]int{"reasoning": u.ReasoningTokens}
+		}
+		if encoded, err := json.Marshal(meta); err == nil {
+			attrs = append(attrs, usageMetaKey.String(string(encoded)))
 		}
 		attrs = append(attrs,
 			inputTokensKey.Int(u.InputTokens),
