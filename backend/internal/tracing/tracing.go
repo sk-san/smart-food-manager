@@ -31,8 +31,13 @@ import (
 // LangSmith and GenAI attribute keys. These are the names the LangSmith OTLP
 // converter looks for; gen_ai.prompt/completion in particular predate the
 // per-message semconv events and have no semconv constant.
+// SpanKindKey marks a span as describing LLM work. It is exported because the
+// LangSmith export filters on it: every span the service produces reaches the
+// tracer provider, and only these belong in an LLM observability tool.
+const SpanKindKey = attribute.Key("langsmith.span.kind")
+
 const (
-	spanKindKey  = attribute.Key("langsmith.span.kind")
+	spanKindKey  = SpanKindKey
 	traceNameKey = attribute.Key("langsmith.trace.name")
 	sessionIDKey = attribute.Key("langsmith.metadata.session_id")
 	// LangSmith prices a run by looking the model up under this key. The

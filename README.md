@@ -414,9 +414,16 @@ things follow from sharing one provider:
   to `http://` and every export fails with `405 Method Not Allowed`. `telemetry` builds the
   exporter with `otlptracehttp.WithEndpointURL` so TLS is fixed per exporter. `LANGSMITH_ENDPOINT`
   may be a URL (`https://eu.api.smith.langchain.com`) or a bare host; both are normalised.
-- **Every span is exported, not just LLM ones.** HTTP client and server spans land in the
-  LangSmith project as generic `chain` runs. That is what keeps a run tree whole when its
-  parent is an ordinary HTTP span, and it is why the export stays off unless a key is set. The
+- **Only traces that called a model are exported.** A span processor forwards a span when it
+  carries the LLM attribute, or when an earlier span in the same trace did — children end
+  before their parents, so the HTTP root is already marked by the time it ends. Requests that
+  never touch a model, CORS preflights above all, are dropped.
+
+  Filtering to the LLM spans alone does not work, which is worth knowing before someone
+  "simplifies" it: LangSmith discards a run whose parent span it never received, so the llm run
+  vanishes along with the HTTP span above it. Verified by trying it — nothing arrived. Keeping
+  the parent also earns its place, since LangSmith rolls the child's tokens and cost up onto it.
+  The collector is not filtered and still receives every span. The
 attribute conventions LangSmith reads (`langsmith.span.kind`, `gen_ai.prompt`,
 `langsmith.usage_metadata`, …) live in one place, [`internal/tracing`](backend/internal/tracing/tracing.go).
 
