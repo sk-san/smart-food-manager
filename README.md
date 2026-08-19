@@ -365,8 +365,12 @@ make obs-up           # OTel Collector + Loki + Tempo + Prometheus + Grafana
 - Tempo:      http://localhost:3200
 - Loki:       http://localhost:3100
 
-Tear it down with `make obs-down`. Telemetry is best-effort: if the collector is unreachable,
-the backend logs a warning and falls back to stderr logging. See
+Tear it down with `make obs-down`. Telemetry is best-effort. The collector is used only when
+an `OTEL_EXPORTER_OTLP_*` endpoint is configured — `.env` sets one for local development. With
+none set, as in the Railway deployment, traces still reach LangSmith over its own exporter
+while metrics are skipped and logs stay on stderr for the platform to collect. That last part
+is load-bearing: bridging `slog` to a collector that is not there would swallow every log
+entry rather than surface it. See
 [`observability/README.md`](observability/README.md) for the logging blueprint and dashboards.
 
 ### LLM tracing (LangSmith)
