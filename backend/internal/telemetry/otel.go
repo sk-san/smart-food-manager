@@ -49,7 +49,7 @@ func WithLangSmith(apiKey, project, endpoint string) Option {
 
 // LangSmith OTLP ingestion details.
 const (
-	defaultLangSmithHost  = "api.smith.langchain.com"
+	defaultLangSmithHost  = "eu.api.smith.langchain.com"
 	langsmithTracesPath   = "/otel/v1/traces"
 	langsmithBatchTimeout = time.Second
 )
@@ -134,7 +134,7 @@ func (p *llmTracesOnly) OnEnd(span sdktrace.ReadOnlySpan) {
 	}
 	// The root is kept because LangSmith discards a run whose parent it never
 	// received, and because it is the run the child costs roll up onto.
-	if !span.Parent().IsValid() && p.marked(traceID) {
+	if (!span.Parent().IsValid() || span.Parent().IsRemote()) && p.marked(traceID) {
 		p.SpanProcessor.OnEnd(span)
 	}
 }
@@ -206,6 +206,9 @@ func normalizeOTLPEndpoint(endpoint string) string {
 // processors on this one tracer provider, rather than as a second provider, so
 // every exporter sees whole traces and the resource attributes stay consistent.
 func Setup(ctx context.Context, serviceName, serviceVersion, environment string, opts ...Option) (*Telemetry, error) {
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		slog.Error("otel", "error", err)
+	}))
 	var cfg options
 	for _, opt := range opts {
 		opt(&cfg)

@@ -57,8 +57,9 @@ type Config struct {
 
 	// LangSmith LLM tracing. An empty LangSmithAPIKey leaves it off; spans
 	// still reach the OTel collector either way.
-	LangSmithAPIKey  string
-	LangSmithProject string
+	LangSmithAPIKey      string
+	LangSmithProject     string
+	LangSmithWorkSpaceID string
 	// LangSmithTracing is LangSmith's own LANGSMITH_TRACING switch, honoured
 	// so an existing .env turns the export off without removing the key.
 	LangSmithTracing bool
@@ -115,7 +116,7 @@ func Load() Config {
 		GeminiAPIKey:   getEnv("GEMINI_API_KEY", ""),
 		GeminiBaseURL:  getEnv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
 		GeminiModel:    getEnv("GEMINI_MODEL", "gemini-2.5-flash"),
-		GeminiTimeout:  time.Duration(getEnvInt("GEMINI_TIMEOUT_SECONDS", 30)) * time.Second,
+		GeminiTimeout:  time.Duration(getEnvInt("GEMINI_TIMEOUT_SECONDS", 60)) * time.Second,
 		GeminiAltModel: getEnv("GEMINI_ALT_MODEL", "gemini-3.6-flash"),
 
 		MistralAPIKey:  getEnv("MISTRAL_API_KEY", ""),
@@ -127,7 +128,8 @@ func Load() Config {
 		OpenAIModel:   getEnv("OPENAI_MODEL", ""),
 		OpenAITimeout: time.Duration(getEnvInt("OPENAI_TIMEOUT_SECONDS", 60)) * time.Second,
 
-		LangSmithAPIKey:         getEnv("LANGSMITH_API_KEY", ""),
+		LangSmithAPIKey: getEnv("LANGSMITH_API_KEY", ""),
+		//LangSmithWorkSpaceID:    getEnv("LANGSMITH_WORKSPACE_ID", ""),
 		LangSmithTracing:        getEnvBool("LANGSMITH_TRACING", true),
 		LangSmithProject:        getEnv("LANGSMITH_PROJECT", "smart-food-manager"),
 		LangSmithEndpoint:       getEnv("LANGSMITH_ENDPOINT", ""),

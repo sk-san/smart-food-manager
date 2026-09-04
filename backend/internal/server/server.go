@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sk-san/smart-food-manager/backend/internal/config"
@@ -35,7 +36,8 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	// emits request_received / request_completed / request_failed events.
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
-	r.Use(otelhttp.NewMiddleware(cfg.ServiceName))
+	r.Use(otelhttp.NewMiddleware(cfg.ServiceName, otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true })))
+	//r.Use(otelhttp.NewMiddleware(cfg.ServiceName))
 	r.Use(cors(cfg.AllowedOrigins))
 	r.Use(middleware.RequestContext)
 	r.Use(middleware.RequestLogger("/healthz"))
@@ -92,11 +94,12 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 		// AddEntryModal food analysis (text or image) via Gemini. Public so
 		// the modal works pre-login; a token, when present, binds the call
 		// to the user and lifts the guest daily limit.
-		r.With(middleware.OptionalAuthenticator(cfg.JWTSecret), guestAI.Middleware).
-			Post("/nutrition/analyze", nutrition.Analyze)
+		r.With(middleware.OptionalAuthenticator(cfg.JWTSecret), guestAI.Middleware).Post("/nutrition/analyze", nutrition.Analyze)
+		//r.Post("/nutrition/analyze", nutrition.Analyze)
 
 		// Remaining guest analyses, so the modal can show the allowance
 		// before one is spent. Reading it never consumes a run.
+		// currently ai quota is disable to conduct api tests
 		r.With(middleware.OptionalAuthenticator(cfg.JWTSecret)).
 			Get("/nutrition/quota", guestAI.Status)
 
@@ -201,6 +204,10 @@ func cors(allowed []string) func(http.Handler) http.Handler {
 				return
 			}
 			next.ServeHTTP(w, r)
+
+			if route := chi.RouteContext(r.Context()).RoutePattern(); route != "" {
+				trace.SpanFromContext(r.Context()).SetName(r.Method + " " + route)
+			}
 		})
 	}
 }
