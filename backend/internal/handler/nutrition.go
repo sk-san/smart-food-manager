@@ -96,6 +96,7 @@ func (h *NutritionHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// request from the frontend
 	var req analyzeRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAnalyzeRequestBodyBytes))
 	if err := decoder.Decode(&req); err != nil {

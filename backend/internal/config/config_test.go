@@ -31,7 +31,7 @@ func TestLoadDefaults(t *testing.T) {
 		cfg.ServiceName != "backend-api" {
 		t.Errorf("unexpected service defaults: %+v", cfg)
 	}
-	if cfg.GeminiModel != "gemini-2.5-flash" || cfg.GeminiTimeout != 30*time.Second {
+	if cfg.GeminiModel != "gemini-2.5-flash" || cfg.GeminiTimeout != 60*time.Second {
 		t.Errorf("unexpected Gemini defaults: %+v", cfg)
 	}
 	// The fan-out's second model must differ from the first, or the two agents

@@ -85,7 +85,7 @@ export async function apiDelete(path: string): Promise<void> {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const tc = newTraceContext();
+  const tc =newTraceContext();
   const action = `${method} ${path}`;
   const httpAttrs = { "http.request.method": method, "http.route": path };
   const started = performance.now();
