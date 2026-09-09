@@ -133,21 +133,26 @@ const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onGuestLogin }) => {
           {/* Sign-up and password recovery have no endpoint behind them yet
               (the API exposes login only), so the screen says so rather than
               offering controls that lead nowhere. */}
-          <p className="mt-5 text-[13px] leading-relaxed text-neutral-700">
-            Accounts are created by invitation while Nutri is in testing — sign-up and password
-            recovery are not open yet. Continue as a guest below to look around.
-          </p>
+          
 
-          <div className="kicker mb-2 mt-6 text-center text-neutral-700">Guest access · testing only</div>
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={onGuestLogin}
-            className="btn w-full border border-dashed border-neutral-500 py-2.5 text-[13px] text-neutral-700 hover:bg-neutral-200 active:bg-neutral-300"
-          >
-            <UserRound size={15} strokeWidth={2.5} />
-            Continue as guest
-          </button>
+            {import.meta.env.DEV && (
+            <>
+              <p className="mt-5 text-[13px] leading-relaxed text-neutral-700">
+              Accounts are created by invitation while Nutri is in testing — sign-up and password
+              recovery are not open yet. Continue as a guest below to look around.
+              </p>
+              <div className="kicker mb-2 mt-6 text-center text-neutral-700">Guest access · testing only</div>
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={onGuestLogin}
+                className="btn w-full border border-dashed border-neutral-500 py-2.5 text-[13px] text-neutral-700 hover:bg-neutral-200 active:bg-neutral-300"
+              >
+                <UserRound size={15} strokeWidth={2.5} />
+                Continue as guest
+              </button>
+            </>
+          )}
         </form>
       </div>
     </div>
