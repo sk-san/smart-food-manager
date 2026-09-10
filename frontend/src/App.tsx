@@ -24,7 +24,7 @@ import {
   writeDashboardLayout,
 } from "./preferences";
 import { logNavigation, logScreenView } from "./telemetry/events";
-import { ApiError, getToken, setToken } from "./api/client";
+import { ApiError, getToken, onUnauthorized, setToken } from "./api/client";
 import { getCurrentUser, updateDisplayName } from "./services/accountService";
 import { LarderItem, NewLarderItem, SEED_LARDER, WasteEvent } from "./types/pantry";
 import {
@@ -269,6 +269,14 @@ function App() {
       return next;
     });
   };
+
+  useEffect(() => {
+    const unsubscribe = onUnauthorized(() => {
+      handleLogout();
+      showToast("Session expired. Please sign in again.");
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     logScreenView("dashboard");

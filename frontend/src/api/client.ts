@@ -64,6 +64,18 @@ export function getToken(): string | null {
   return authToken;
 }
 
+type UnauthorizedHandler = () => void;
+let onUnauthorizedHandler: UnauthorizedHandler | null = null;
+
+export function onUnauthorized(handler: UnauthorizedHandler): () => void {
+  onUnauthorizedHandler = handler;
+  return () => {
+    if (onUnauthorizedHandler === handler) {
+      onUnauthorizedHandler = null;
+    }
+  };
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   return request<T>("GET", path);
 }
@@ -132,6 +144,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
 
   if (!res.ok) {
+    if (res.status === 401) {
+      setToken(null);
+      onUnauthorizedHandler?.();
+    }
     const errorBody = await readErrorBody(res);
     logEvent({
       severity: "ERROR",
