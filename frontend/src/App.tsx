@@ -40,6 +40,7 @@ import {
   scanExpiryIsEstimated,
   scanNutritionPer100g,
 } from "./services/persistenceService";
+import { resetSessionId } from "./telemetry/session";
 
 type Tab = "dashboard" | "history" | "pantry" | "settings";
 type AuthState = "checking" | "authenticated" | "unauthenticated" | "error";
@@ -247,6 +248,7 @@ function App() {
     savedDataRequest.current += 1;
     lifecycleMutationRevision.current += 1;
     setToken(null);
+    resetSessionId();
     setAuthState("unauthenticated");
     setAuthError(null);
     setIsGuest(false);
@@ -258,6 +260,10 @@ function App() {
     locallyExpiredItemIds.current.clear();
     setDataError(null);
     setIsDataLoading(false);
+    setActiveTab("dashboard");
+    scrollOffsets.current = {};
+    setIsModalOpen(false);
+    setIsLookingAtContent(false);
     logScreenView("login");
   };
 
