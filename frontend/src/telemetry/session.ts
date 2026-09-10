@@ -12,3 +12,12 @@ export function getSessionId(): string {
   }
   return id;
 }
+
+/** Clear the session identifier on logout so subsequent sessions get a fresh trace. */
+export function resetSessionId(): void {
+  try {
+    sessionStorage.removeItem(KEY);
+  } catch {
+    /* best-effort */
+  }
+}
