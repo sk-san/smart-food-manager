@@ -98,7 +98,7 @@ const impactForQuantity = (quantityGrams: number) => ({
 async function signIn(page: Page) {
   await page.getByLabel("Email").fill("john.doe@example.com");
   await page.getByLabel("Password").fill("correct-horse");
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.locator('button[type="submit"]:has-text("Sign in")').click();
 }
 
 // The suite starts signed in (beforeEach seeds a token), so reaching the guest
