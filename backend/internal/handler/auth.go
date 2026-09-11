@@ -25,8 +25,8 @@ import (
 )
 
 type DB interface {
-    QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-    }
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 type AuthHandler struct {
 	db     DB
@@ -54,33 +54,33 @@ type registerRequest struct {
 }
 
 func validateRegisterInput(req *registerRequest) error {
-    req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 
-    if req.Email == "" || req.Password == "" {
-        return errors.New("email and password are required")
-    }
+	if req.Email == "" || req.Password == "" {
+		return errors.New("email and password are required")
+	}
 
-    if len(req.Email) > 254 {
-        return errors.New("invalid input format")
-    }
-    addr, err := mail.ParseAddress(req.Email)
-    if err != nil || addr.Address != req.Email {
-        return errors.New("invalid input format")
-    }
+	if len(req.Email) > 254 {
+		return errors.New("invalid input format")
+	}
+	addr, err := mail.ParseAddress(req.Email)
+	if err != nil || addr.Address != req.Email {
+		return errors.New("invalid input format")
+	}
 
-    if len(req.Password) < 8 || len(req.Password) > 72 {
-        return errors.New("password must be between 8 and 72 characters")
-    }
+	if len(req.Password) < 8 || len(req.Password) > 72 {
+		return errors.New("password must be between 8 and 72 characters")
+	}
 
-    if req.DisplayName != "" {
-        cleaned, err := validateDisplayName(req.DisplayName)
-        if err != nil {
-            return err
-        }
-        req.DisplayName = cleaned
-    }
+	if req.DisplayName != "" {
+		cleaned, err := validateDisplayName(req.DisplayName)
+		if err != nil {
+			return err
+		}
+		req.DisplayName = cleaned
+	}
 
-    return nil
+	return nil
 }
 
 // validateLoginInput validates and sanitizes input data.
@@ -305,42 +305,42 @@ type updateAccountRequest struct {
 }
 
 type forgotPasswordRequest struct {
-    Email string `json:"email"`
+	Email string `json:"email"`
 }
 
 type resetPasswordRequest struct {
-    Token    string `json:"token"`
-    Password string `json:"password"`
+	Token    string `json:"token"`
+	Password string `json:"password"`
 }
 
 type messageResponse struct {
-    Message string `json:"message"`
+	Message string `json:"message"`
 }
 
 func validateForgotPasswordInput(req *forgotPasswordRequest) error {
-    req.Email = strings.ToLower(strings.TrimSpace(req.Email))
-    if req.Email == "" {
-        return errors.New("email is required")
-    }
-    if len(req.Email) > 254 {
-        return errors.New("invalid input format")
-    }
-    addr, err := mail.ParseAddress(req.Email)
-    if err != nil || addr.Address != req.Email {
-        return errors.New("invalid input format")
-    }
-    return nil
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	if req.Email == "" {
+		return errors.New("email is required")
+	}
+	if len(req.Email) > 254 {
+		return errors.New("invalid input format")
+	}
+	addr, err := mail.ParseAddress(req.Email)
+	if err != nil || addr.Address != req.Email {
+		return errors.New("invalid input format")
+	}
+	return nil
 }
 
 func validateResetPasswordInput(req *resetPasswordRequest) error {
-    req.Token = strings.TrimSpace(req.Token)
-    if req.Token == "" || req.Password == "" {
-        return errors.New("token and password are required")
-    }
-    if len(req.Password) < 8 || len(req.Password) > 72 {
-        return errors.New("password must be between 8 and 72 characters")
-    }
-    return nil
+	req.Token = strings.TrimSpace(req.Token)
+	if req.Token == "" || req.Password == "" {
+		return errors.New("token and password are required")
+	}
+	if len(req.Password) < 8 || len(req.Password) > 72 {
+		return errors.New("password must be between 8 and 72 characters")
+	}
+	return nil
 }
 
 // UpdateMe saves the display name the user typed on the account page. It is the
@@ -381,79 +381,79 @@ func (h *AuthHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 // ForgotPassword initiates the password recovery flow.
 // It always returns 200 OK to prevent email enumeration.
 func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
+	ctx := r.Context()
 
-    var req forgotPasswordRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        writeError(w, http.StatusBadRequest, "invalid request body")
-        return
-    }
+	var req forgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
 
-    if err := validateForgotPasswordInput(&req); err != nil {
-        writeError(w, http.StatusBadRequest, err.Error())
-        return
-    }
+	if err := validateForgotPasswordInput(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
-    var userID string
-    err := h.db.QueryRow(ctx, `
+	var userID string
+	err := h.db.QueryRow(ctx, `
         SELECT id FROM users WHERE email = $1 AND is_active`, req.Email).Scan(&userID)
 
-    if err == nil {
-        token, tokenErr := middleware.NewPasswordResetToken(h.secret, userID, 15*time.Minute)
-        if tokenErr == nil {
-            fmt.Printf("\n\n>>> PASSWORD RESET TOKEN: %s <<<\n\n", token)
-        }
-    }
+	if err == nil {
+		token, tokenErr := middleware.NewPasswordResetToken(h.secret, userID, 15*time.Minute)
+		if tokenErr == nil {
+			fmt.Printf("\n\n>>> PASSWORD RESET TOKEN: %s <<<\n\n", token)
+		}
+	}
 
-    writeJSON(w, http.StatusOK, map[string]string{
-        "message": "If the account exists, password recovery instructions have been sent.",
-    })
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "If the account exists, password recovery instructions have been sent.",
+	})
 }
 
 // ResetPassword verifies the reset token and updates the user's password.
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
+	ctx := r.Context()
 
-    var req resetPasswordRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        writeError(w, http.StatusBadRequest, "invalid request body")
-        return
-    }
+	var req resetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
 
-    if err := validateResetPasswordInput(&req); err != nil {
-        writeError(w, http.StatusBadRequest, err.Error())
-        return
-    }
+	if err := validateResetPasswordInput(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
-    userID, err := middleware.ParsePasswordResetToken(req.Token, h.secret)
-    if err != nil {
-        writeError(w, http.StatusBadRequest, "invalid or expired reset token")
-        return
-    }
+	userID, err := middleware.ParsePasswordResetToken(req.Token, h.secret)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid or expired reset token")
+		return
+	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-    if err != nil {
-        writeError(w, http.StatusInternalServerError, "could not process password")
-        return
-    }
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not process password")
+		return
+	}
 
-    var updatedID string
-    err = h.db.QueryRow(ctx, `
+	var updatedID string
+	err = h.db.QueryRow(ctx, `
         UPDATE users
         SET password_hash = $2, updated_at = now()
         WHERE id = $1 AND is_active
         RETURNING id`, userID, string(hashedPassword)).Scan(&updatedID)
 
-    if errors.Is(err, pgx.ErrNoRows) {
-        writeError(w, http.StatusBadRequest, "user not found or inactive")
-        return
-    }
-    if err != nil {
-        writeError(w, http.StatusInternalServerError, "could not reset password")
-        return
-    }
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusBadRequest, "user not found or inactive")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not reset password")
+		return
+	}
 
-    writeJSON(w, http.StatusOK, messageResponse{
-        Message: "Password has been reset successfully.",
-    })
+	writeJSON(w, http.StatusOK, messageResponse{
+		Message: "Password has been reset successfully.",
+	})
 }

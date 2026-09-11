@@ -17,10 +17,10 @@ const claimsContextKey contextKey = "claims"
 
 // Claims is the JWT payload carried on authenticated requests.
 type Claims struct {
-    UserID string   `json:"uid"`
-    Roles  []string `json:"roles"`
-    Scope  string   `json:"scope,omitempty"`
-    jwt.RegisteredClaims
+	UserID string   `json:"uid"`
+	Roles  []string `json:"roles"`
+	Scope  string   `json:"scope,omitempty"`
+	jwt.RegisteredClaims
 }
 
 // NewToken issues a signed HS256 token for a user with the given roles.
@@ -113,31 +113,32 @@ func bearerToken(r *http.Request) string {
 	}
 	return strings.TrimSpace(parts[1])
 }
+
 // NewPasswordResetToken issues a signed token specifically for password recovery.
 // It has a short TTL and is marked with the "password_reset" scope.
 func NewPasswordResetToken(secret, userID string, ttl time.Duration) (string, error) {
-    now := time.Now()
-    claims := Claims{
-        UserID: userID,
-        Scope:  "password_reset",
-        RegisteredClaims: jwt.RegisteredClaims{
-            Subject:   userID,
-            IssuedAt:  jwt.NewNumericDate(now),
-            ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
-        },
-    }
-    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-    return token.SignedString([]byte(secret))
+	now := time.Now()
+	claims := Claims{
+		UserID: userID,
+		Scope:  "password_reset",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
 }
 
 // ParsePasswordResetToken verifies the token and ensures it carries the "password_reset" scope.
 func ParsePasswordResetToken(raw, secret string) (string, error) {
-    claims, err := parseClaims(raw, secret)
-    if err != nil {
-        return "", err
-    }
-    if claims.Scope != "password_reset" {
-        return "", jwt.ErrTokenInvalidClaims
-    }
-    return claims.UserID, nil
+	claims, err := parseClaims(raw, secret)
+	if err != nil {
+		return "", err
+	}
+	if claims.Scope != "password_reset" {
+		return "", jwt.ErrTokenInvalidClaims
+	}
+	return claims.UserID, nil
 }
