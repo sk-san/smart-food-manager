@@ -47,6 +47,42 @@ type loginResponse struct {
 	Token string `json:"token"`
 }
 
+type registerRequest struct {
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name,omitempty"`
+}
+
+func validateRegisterInput(req *registerRequest) error {
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
+	if req.Email == "" || req.Password == "" {
+		return errors.New("email and password are required")
+	}
+
+	if len(req.Email) > 254 {
+		return errors.New("invalid input format")
+	}
+	addr, err := mail.ParseAddress(req.Email)
+	if err != nil || addr.Address != req.Email {
+		return errors.New("invalid input format")
+	}
+
+	if len(req.Password) < 8 || len(req.Password) > 72 {
+		return errors.New("password must be between 8 and 72 characters")
+	}
+
+	if req.DisplayName != "" {
+		cleaned, err := validateDisplayName(req.DisplayName)
+		if err != nil {
+			return err
+		}
+		req.DisplayName = cleaned
+	}
+
+	return nil
+}
+
 // validateLoginInput validates and sanitizes input data.
 // Uses a pointer receiver so that strings.TrimSpace modifies the original struct in-place.
 func validateLoginInput(req *loginRequest) error {
@@ -124,6 +160,53 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	logLoginAttempt(ctx, true, "", time.Since(start))
 	writeJSON(w, http.StatusOK, loginResponse{Token: token})
+}
+
+// Register creates a new user account, hashes the password, and issues a JWT token.
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req registerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := validateRegisterInput(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not process password")
+		return
+	}
+
+	var userID string
+	err = h.db.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, display_name)
+		VALUES ($1, $2, NULLIF($3, ''))
+		ON CONFLICT (email) DO NOTHING
+		RETURNING id`, req.Email, string(hashedPassword), req.DisplayName).Scan(&userID)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusConflict, "email already registered")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create account")
+		return
+	}
+
+	// Roles default to empty slice for new standard users
+	token, err := middleware.NewToken(h.secret, userID, []string{}, h.ttl)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not issue token")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, loginResponse{Token: token})
 }
 
 func logLoginAttempt(ctx context.Context, ok bool, reason string, d time.Duration) {
@@ -221,6 +304,45 @@ type updateAccountRequest struct {
 	DisplayName string `json:"display_name"`
 }
 
+type forgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+type resetPasswordRequest struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+}
+
+type messageResponse struct {
+	Message string `json:"message"`
+}
+
+func validateForgotPasswordInput(req *forgotPasswordRequest) error {
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	if req.Email == "" {
+		return errors.New("email is required")
+	}
+	if len(req.Email) > 254 {
+		return errors.New("invalid input format")
+	}
+	addr, err := mail.ParseAddress(req.Email)
+	if err != nil || addr.Address != req.Email {
+		return errors.New("invalid input format")
+	}
+	return nil
+}
+
+func validateResetPasswordInput(req *resetPasswordRequest) error {
+	req.Token = strings.TrimSpace(req.Token)
+	if req.Token == "" || req.Password == "" {
+		return errors.New("token and password are required")
+	}
+	if len(req.Password) < 8 || len(req.Password) > 72 {
+		return errors.New("password must be between 8 and 72 characters")
+	}
+	return nil
+}
+
 // UpdateMe saves the display name the user typed on the account page. It is the
 // only account field the API lets a caller change.
 func (h *AuthHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
@@ -254,4 +376,84 @@ func (h *AuthHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
+}
+
+// ForgotPassword initiates the password recovery flow.
+// It always returns 200 OK to prevent email enumeration.
+func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req forgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := validateForgotPasswordInput(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var userID string
+	err := h.db.QueryRow(ctx, `
+        SELECT id FROM users WHERE email = $1 AND is_active`, req.Email).Scan(&userID)
+
+	if err == nil {
+		token, tokenErr := middleware.NewPasswordResetToken(h.secret, userID, 15*time.Minute)
+		if tokenErr == nil {
+			fmt.Printf("\n\n>>> PASSWORD RESET TOKEN: %s <<<\n\n", token)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "If the account exists, password recovery instructions have been sent.",
+	})
+}
+
+// ResetPassword verifies the reset token and updates the user's password.
+func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req resetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := validateResetPasswordInput(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	userID, err := middleware.ParsePasswordResetToken(req.Token, h.secret)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid or expired reset token")
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not process password")
+		return
+	}
+
+	var updatedID string
+	err = h.db.QueryRow(ctx, `
+        UPDATE users
+        SET password_hash = $2, updated_at = now()
+        WHERE id = $1 AND is_active
+        RETURNING id`, userID, string(hashedPassword)).Scan(&updatedID)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusBadRequest, "user not found or inactive")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not reset password")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, messageResponse{
+		Message: "Password has been reset successfully.",
+	})
 }

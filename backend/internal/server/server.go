@@ -84,6 +84,9 @@ func New(cfg config.Config, pool *pgxpool.Pool) http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public endpoints.
 		r.Post("/auth/login", auth.Login)
+		r.Post("/auth/register", auth.Register)
+		r.Post("/auth/forgot-password", auth.ForgotPassword)
+		r.Post("/auth/reset-password", auth.ResetPassword)
 		r.Get("/nutrients", nutrients.List)
 
 		// Frontend telemetry sink: public, but a valid token (when
