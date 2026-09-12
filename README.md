@@ -104,96 +104,6 @@ from a user problem to the code that answers it.
 | Signing up before knowing whether the app is worth it is its own churn point | **Continue as guest** — the AI flow works without an account, capped server-side at `GUEST_AI_DAILY_LIMIT` analyses per day per IP, since each one costs a real Gemini call and a client-side cap is trivially bypassed | [`aiquota.go`](backend/internal/middleware/aiquota.go), [`LoginView.tsx`](frontend/src/components/LoginView.tsx) |
 | The one feature worth trying first asks you to go find a photo before you can try it | A **bundled sample meal photo** (public-domain USDA image, chosen because it holds four separable items) loads straight into the scanner | [`sampleMealPhoto.ts`](frontend/src/services/sampleMealPhoto.ts) |
 
-## 5. Scope discipline: what this deliberately does not do
-
-The product is a companion, not a clinician. That boundary is a product decision with
-concrete consequences for wording and features.
-
-**In scope:** trends in nutrient intake from food, rough visualization of meal balance,
-general tips for improving eating habits.
-
-**Out of scope:** supplements, medical diagnosis, treatment, individualized nutrition
-prescriptions, disease-specific dietary guidance.
-
-Copy is held to the same line — *"you've logged relatively few iron-containing foods,"*
-never *"you are iron deficient"* or *"you should take supplements."* Nutrients tracked for
-**low** trends: protein, fiber, calcium, iron, potassium. For **excess** trends: energy,
-salt/sodium, saturated fat, free sugars.
-
-## 6. Food-loss instrumentation (the most opinionated part of the schema)
-
-Because the research showed "expired" is a muddy category, the database refuses to collapse
-it. `waste_events` records five independent dimensions per discard, as Postgres enums:
-
-```sql
-discard_reason   expired_best_before | expired_use_by | near_expiry_but_not_used
-                 | spoiled_visible | smelled_or_tasted_bad | forgot_item_existed
-                 | overbought | cooked_too_much | leftover_not_eaten
-                 | unsure_if_safe | storage_failure | preference_changed | other
-date_label_type  best_before | use_by | display_until | no_date_label | unknown
-date_status      before_date | on_date | 1_3_days_after | 4_7_days_after
-                 | 8_14_days_after | 15_plus_days_after | unknown
-package_status   unopened | opened | cooked | leftover | unknown
-spoilage         none | visual_mold | discoloration | smell | texture_change | taste | unknown
-```
-
-These roll up into an analysis bucket — `expiry_caused`, `expiry_related`, or
-`expiry_unrelated` — derived server-side in [`waste.go:167`](backend/internal/handler/waste.go:167).
-The payoff: the app can distinguish *"the date passed and I binned it unopened"* from
-*"I forgot it existed"* from *"I cooked too much."* Those are three different problems with
-three different interventions, and lumping them together would make the product's central
-claim unmeasurable.
-
-Environmental estimates are read-time and versioned
-(`poore-nemecek-2018+wfn-global-average+epa-2024`), so updating the factor table
-recomputes history rather than stranding it. Every waste response carries the active
-`impact_factor_version`. These are directional product feedback, not a lifecycle assessment.
-
-## 7. Honest status
-
-Portfolio value comes from the reasoning being traceable — including where the code hasn't
-caught up with the design yet. Nothing below is hidden in the UI either: planned-but-unwired
-controls render through a dedicated [`PlannedAction`](frontend/src/components/PlannedAction.tsx)
-component that stays keyboard-reachable, announces itself as unavailable via `aria-disabled`,
-and prints the reason in plain text next to itself.
-
-| Area | Status | Notes |
-| --- | --- | --- |
-| Photo → nutrition logging | **Built** | Gemini-backed; local estimate fallback when no API key |
-| Scan → pantry + provisional intake, then reconciliation on consume | **Built** | Single transaction; ingredients defer intake until consumed |
-| Expiry reconciliation → waste, exactly once | **Built** | Timezone-aware, history-preserving, covered by tests |
-| Structured discard taxonomy (5 dimensions + analysis bucket) | **Built** | Full enum set in schema and API |
-| Environmental impact estimates | **Built** | Versioned factors, deterministic, documented sources |
-| Weekly stats | **Built** | Seven-day intake charts on their own tab, code-split so Recharts never loads with Today ([`StatsView.tsx`](frontend/src/components/StatsView.tsx)) |
-| Account page | **Built** | Display name (`PATCH /api/v1/me`), daily goals, dark mode, and the Today layout choice ([`SettingsView.tsx`](frontend/src/components/SettingsView.tsx)) |
-| Multi-model advice panel | **Built** | `POST /api/v1/nutrients/advice/panel`, registered only when a provider key is set; no UI calls it yet |
-| Companion character | **Partial** | Animated and reactive in-app, but `POST /api/v1/companion/message` has **no backend route** — the client calls it and falls back to local messages ([`nutritionService.ts:172`](frontend/src/services/nutritionService.ts:172)) |
-| Discard reasons in the UI | **Partial** | The picker offers 7 common reasons; the schema supports all 13 |
-| Rough range language ("tends to be low") | **Not built** | The dashboard still shows precise values against goals ([`NutritionCard.tsx`](frontend/src/components/NutritionCard.tsx)). The stated design calls for range-based phrasing — this is the largest open gap between spec and code |
-| Today's meal suggestions from near-expiry stock | **Not built** | "Eat soon" grouping exists; recipe suggestions are marked planned in the UI |
-| Reminders / push notifications | **Not built** | The service worker is offline-shell only; no Web Push. Companion nudges are in-app only |
-| Guest trial without an account | **Built** | "Continue as guest" plus a server-enforced daily AI allowance ([`aiquota.go`](backend/internal/middleware/aiquota.go)) |
-| Signup / password recovery | **Not built** | Account creation needs a seeded row and bcrypt hash; guests can look around in the meantime |
-
-## 8. How this would be measured
-
-KPIs chosen to test the hypothesis rather than flatter it — retention first, because the
-research says that is where these apps fail.
-
-- **Retention** — D1 / D7 / D30, and share of users logging ≥3 days per week
-- **Nutrition** — meal-log completion rate, logging days per week, and the rate of a
-  corrective action following a "tends to be low" signal
-- **Food loss** — items registered, consumption rate of near-expiry stock, expiry-related
-  discard logs, items fully used up
-- **Companion** — feedback view rate, and the rate of *resuming* logging after a lapse
-  (the metric that decides whether the character is a retention mechanism or a mascot)
-
----
-
-# Engineering
-
-Monorepo holding the **Go** backend API and the **React + TypeScript** frontend, with a
-full local observability stack.
 
 ## Stack
 
@@ -257,23 +167,6 @@ smart-food-manager/
 └── Makefile                    task runner (make help)
 ```
 
-## The app in four tabs
-
-**Today** shows the day's intake against the goals, with the log-a-meal action on it.
-It has three interchangeable presentations of that same data, chosen in Account and stored
-per browser ([`preferences.ts`](frontend/src/preferences.ts)) — **Ledger** (ring gauges and
-cards), **Plate** (a 24-hour clock face with each meal set at the hour it was eaten), and
-**Almanac** (the day written out as a page, numbers in the margin). They are alternative
-*presentations* of one task rather than three tasks, so exactly one renders at a time.
-Below the `md` breakpoint a separate [`MobileDashboardView`](frontend/src/components/MobileDashboardView.tsx)
-takes over instead of reflowing the desktop one.
-
-**Stats** plots the running week's intake and macro split. It is lazy-loaded, which keeps
-Recharts out of the bundle Today needs. **Pantry** is stock grouped by urgency, the
-consume/discard forms, and the waste footprint. **Account** holds the display name, the daily
-goals, dark mode, and the Today layout choice. Guests see the same shell: history-shaped
-panels fall back to a demo series, since a visitor with no logs would otherwise meet empty
-charts on their first screen.
 
 ## Prerequisites
 
@@ -284,59 +177,6 @@ charts on their first screen.
   `GEMINI_API_KEY` is set, and the frontend falls back to local estimates so the
   implemented UI flows stay usable without it.
 
-## Configuration
-
-The backend reads its config from environment variables and ships with sensible development
-defaults (see [`backend/internal/config/config.go`](backend/internal/config/config.go)), so it
-runs without any `.env`. The `Makefile` and `docker-compose.yml` both load a root `.env` when
-present. There is no committed `.env.example`; create a git-ignored `.env` if you need to
-override defaults — a working starting point:
-
-```bash
-# Database — Compose reads POSTGRES_*/DB_HOST_PORT; the backend reads DATABASE_URL.
-POSTGRES_USER=app
-POSTGRES_PASSWORD=app
-POSTGRES_DB=foodapp
-DB_HOST_PORT=5433                                              # host port for the Compose Postgres
-
-# Native `make backend` connects to the Compose DB on DB_HOST_PORT (note: 5433, not 5432).
-DATABASE_URL=postgres://app:app@localhost:5433/foodapp?sslmode=disable
-JWT_SECRET=dev-secret-change-me
-LOG_HASH_SALT=dev-salt-change-me
-
-# OpenTelemetry — only needed when the monitoring stack is running (see below).
-OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
-OTEL_EXPORTER_OTLP_INSECURE=true                              # plaintext collector; TLS is the default otherwise
-
-# Gemini AI — leave blank to run without AI features.
-GEMINI_API_KEY=
-
-# Mistral / OpenAI — optional; each adds a provider to the multi-agent fan-out.
-MISTRAL_API_KEY=
-OPENAI_API_KEY=
-
-# LangSmith LLM tracing — leave blank to keep LLM spans on the collector only.
-LANGSMITH_API_KEY=
-LANGSMITH_PROJECT=smart-food-manager
-```
-
-> **Port note:** `make db-up` exposes Postgres on host port **5433** by default (to avoid clashing
-> with a local 5432 instance), while the backend's built-in `DATABASE_URL` default points at 5432.
-> When running the API natively against the Compose database, set `DATABASE_URL` (or
-> `DB_HOST_PORT=5432`) in `.env` so the two agree.
-
-Other backend variables (all optional, with defaults): `PORT`, `JWT_EXPIRY_MINUTES`,
-`RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`, `ALLOWED_ORIGIN` (comma-separated for previews),
-`GUEST_AI_DAILY_LIMIT`, `SERVICE_NAME`,
-`SERVICE_VERSION`, `DEPLOYMENT_ENVIRONMENT`, `GEMINI_BASE_URL`, `GEMINI_MODEL`,
-`GEMINI_TIMEOUT_SECONDS`, `GEMINI_ALT_MODEL`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_SECONDS`,
-`MISTRAL_MODEL`, `MISTRAL_BASE_URL`, `MISTRAL_TIMEOUT_SECONDS`,
-`LANGSMITH_PROJECT`, `LANGSMITH_ENDPOINT`, `LANGSMITH_TRACING`,
-`LANGSMITH_CAPTURE_CONTENT`.
-`GUEST_AI_DAILY_LIMIT` (default `3`) caps how many AI analyses a visitor without an account may
-run per UTC day, counted per client IP; `-1` removes the cap and `0` closes AI analysis to guests
-entirely. Signed-in callers are never capped.
-The frontend accepts `VITE_API_BASE_URL` (empty in dev — see the Vite proxy) and `VITE_APP_VERSION`.
 
 ## Quickstart
 
@@ -351,62 +191,6 @@ make backend          # serves on http://localhost:8080
 # 3. Frontend — in a second terminal
 make install
 make frontend         # serves on http://localhost:5173
-```
-
-Open http://localhost:5173. Vite's development proxy exposes `/healthz` and
-`/api/*` from the backend on the frontend origin (see
-[`frontend/vite.config.ts`](frontend/vite.config.ts)). Adminer (DB browser) is
-at http://localhost:8081 (server `db`, user/password from `.env`).
-
-A database created before a migration was added needs it applied before the updated API
-starts. The same runner the deploy uses does it locally:
-
-```bash
-make migrate-status   # report what is outstanding, change nothing
-make migrate          # apply it
-```
-
-A development database built by `make db-up` *before* the runner existed had its files applied
-through `docker-entrypoint-initdb.d` and has no `schema_migrations` table to prove it — run
-`make migrate-baseline` once on that database first, or the runner will try to replay
-migrations the schema already has ([Migrations](#migrations)).
-
-## Scan and pantry lifecycle
-
-- **Food / product:** scanning stores the nutrient snapshot, creates pantry stock with an expiry
-  date, and provisionally counts the whole scanned portion. Recording the actual consumed amount
-  replaces that estimate; an explicitly discarded remainder becomes a waste event.
-- **Ingredient:** scanning stores the nutrient snapshot in the pantry without changing intake.
-  Each consumed portion becomes a meal entry, while an undiscarded remainder stays available until
-  its estimated expiry.
-- **Expiry:** listing pantry or waste data reconciles overdue unresolved stock transactionally.
-  The remaining quantity is marked resolved and copied to waste once; history is retained rather
-  than physically deleting the inventory row. An open client refreshes at browser-local midnight
-  and when it resumes; the server applies the profile timezone when deciding what has expired.
-- **Impact:** every waste event is converted from grams using category-level global-average
-  coefficients. Values are estimates for feedback, not a formal lifecycle assessment; see
-  [`docs/ENVIRONMENTAL_IMPACT.md`](docs/ENVIRONMENTAL_IMPACT.md) for formulas and sources.
-
-## Install on Android
-
-The frontend is an installable Progressive Web App. Its production build includes an Android-ready
-manifest, maskable cat icons, standalone display mode, offline app-shell support, safe-area handling,
-and a rear-camera capture flow.
-
-```bash
-cd frontend && npm run build && npm run preview
-```
-
-For local testing, open the preview in Chrome. For installation on a phone, host `frontend/dist`
-over HTTPS, set `VITE_API_BASE_URL` to the HTTPS backend origin when the API is not served from the
-same host, then choose **Install app** in Chrome. Camera input opens the rear camera when Android
-supports it and always keeps a gallery fallback. Before upload, photos are re-oriented, stripped of
-EXIF metadata, converted to JPEG, and downscaled to a maximum 1,600 px edge.
-
-To run the whole app in containers instead:
-
-```bash
-docker compose --profile app up --build
 ```
 
 ## Observability
@@ -431,72 +215,6 @@ is load-bearing: bridging `slog` to a collector that is not there would swallow 
 entry rather than surface it. See
 [`observability/README.md`](observability/README.md) for the logging blueprint and dashboards.
 
-### LLM tracing (LangSmith)
-
-Set `LANGSMITH_API_KEY` (and leave `LANGSMITH_TRACING` at `true`) and every model call the API
-makes — label extraction, meal analysis, nutrition advice — is recorded as an `llm` run named
-after the feature, carrying the prompt, the answer, the model, and the token usage.
-`internal/llm` does this by decorating the Gemini client behind the same `GenerateText` /
-`GenerateFromImage` interfaces the handlers already depend on, so no handler knows about it.
-
-Cost is derived by LangSmith from `langsmith.metadata.ls_model_name` plus the token counts, so
-the model name is set under that key specifically — `gen_ai.request.model` alone is not what the
-pricing reads. Thinking tokens are reported under `output_token_details.reasoning`: they are
-billed at the output rate and already counted in `output_tokens`, and the split is often most of
-the bill (a trivial prompt to `gemini-2.5-flash` spent 232 of its 237 output tokens thinking).
-
-Multi-agent work shows up as a run tree — a `chain` run for the fan-out with one `llm` run per
-agent underneath, each carrying its model, prompt, answer, and token usage. Leave the key
-blank and nothing changes: the spans are ordinary OTel spans and still reach Tempo.
-
-`POST /api/v1/nutrients/advice/panel` (authenticated) puts one question to every configured
-provider at once and returns the merged answer with each model's draft beside it. It is a
-separate route from `/nutrients/advice` on purpose: it costs one model call per agent plus the
-merge, where that route costs one. The route is registered only when a provider key is set.
-
-If the merge fails but drafts succeeded — which happens when the synthesizer's provider is the
-one being rate limited — the response falls back to a draft and reports `"merged": false`,
-rather than answering 502 while holding a usable answer.
-
-Exercise the same panel from the command line:
-
-```bash
-set -a; . ./.env; set +a
-cd backend && go run ./cmd/orchestrate "what should I cook with lentils and spinach?"
-```
-
-Both the route and the CLI build their roster from `llm.NewPanel`, so they cannot drift.
-The fan-out compares two Gemini models (`GEMINI_MODEL` and `GEMINI_ALT_MODEL`), and adds a
-Mistral or OpenAI agent for each of `MISTRAL_API_KEY` / `OPENAI_API_KEY` that is set. An agent
-whose provider fails is dropped from the merge rather than failing the run, so the roster can
-exceed what a given key can actually reach.
-
-LangSmith attaches as a second span processor on the tracer provider `telemetry.Setup`
-already builds, rather than through `langsmith.NewOTelTracer`, which would install a provider
-of its own and take the collector export and the service resource attributes with it. Two
-things follow from sharing one provider:
-
-- **The exporter pins its own scheme.** `OTEL_EXPORTER_OTLP_INSECURE=true` is set here for the
-  local collector, but that variable is global: left to it, the LangSmith exporter downgrades
-  to `http://` and every export fails with `405 Method Not Allowed`. `telemetry` builds the
-  exporter with `otlptracehttp.WithEndpointURL` so TLS is fixed per exporter. `LANGSMITH_ENDPOINT`
-  may be a URL (`https://eu.api.smith.langchain.com`) or a bare host; both are normalised.
-- **Only traces that called a model are exported.** A span processor forwards a span when it
-  carries the LLM attribute, or when an earlier span in the same trace did — children end
-  before their parents, so the HTTP root is already marked by the time it ends. Requests that
-  never touch a model, CORS preflights above all, are dropped.
-
-  Filtering to the LLM spans alone does not work, which is worth knowing before someone
-  "simplifies" it: LangSmith discards a run whose parent span it never received, so the llm run
-  vanishes along with the HTTP span above it. Verified by trying it — nothing arrived. Keeping
-  the parent also earns its place, since LangSmith rolls the child's tokens and cost up onto it.
-  The collector is not filtered and still receives every span. The
-attribute conventions LangSmith reads (`langsmith.span.kind`, `gen_ai.prompt`,
-`langsmith.usage_metadata`, …) live in one place, [`internal/tracing`](backend/internal/tracing/tracing.go).
-
-Prompt and answer text is attached to spans only while LangSmith is enabled, since those
-spans also reach the collector and the logging design otherwise keeps user text out of the
-telemetry backend. `LANGSMITH_CAPTURE_CONTENT=false` records metadata and token counts alone.
 
 ## Tests
 
@@ -547,44 +265,6 @@ Try the protected route:
 TOKEN=$(curl -s localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' -d '{"email":"me@example.com","password":"correct-horse"}' | sed 's/.*"token":"//;s/".*//') && curl localhost:8080/api/v1/me -H "Authorization: Bearer $TOKEN"
 ```
 
-The login example requires a matching active user and bcrypt password hash in the database;
-the application does not currently expose a signup endpoint.
-
-## Deployment
-
-The two halves deploy independently from this one repository:
-
-| Piece | Host | Cost |
-| --- | --- | --- |
-| Go API | Railway service, built from `backend/Dockerfile` | ~$1.40/mo usage |
-| Postgres | Railway service in the same project | ~$2.90/mo usage |
-| Frontend | Cloudflare Pages | $0 |
-
-Railway's Hobby plan is **$5/mo including $5 of usage credit**, so the two services above fit
-inside it — the bill is the plan fee. Keeping Postgres on Railway rather than a separate
-provider costs a little more than a free external tier, and buys a private network hop instead
-of a public-internet one, plus a database that is never cold. [`backend/fly.toml`](backend/fly.toml)
-is kept as a working Fly.io + external-Postgres alternative, but nothing deploys it.
-
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) decides what to ship from which
-paths changed, so a frontend-only commit never restarts the API. It uses a `changes` job rather
-than a top-level `paths:` filter: a job skipped by a path filter reports "pending" forever if it
-is ever made a required check, which would block every merge that did not touch that half.
-
-### Migrations
-
-`backend/migrations/*.sql` are embedded in the image and applied by a small runner
-([`cmd/migrate`](backend/cmd/migrate/main.go)) that records each file in a `schema_migrations`
-table and wraps it in a transaction. [`railway.toml`](backend/railway.toml) runs it as
-`preDeployCommand`, in a separate container off the new image with the service's variables,
-before the new version takes traffic — so a failed migration aborts the release instead of
-leaving the API running against a schema it does not expect.
-
-It has to be a Go binary rather than a `psql` loop for two reasons: the runtime image is
-distroless, so there is no shell and no `psql`; and the migrations are not idempotent
-(`CREATE TYPE` without `IF NOT EXISTS`), so re-running them all on every deploy would fail on
-the second one. Both constraints are platform-independent, which is why moving between hosts
-touches only the deploy config.
 
 ```bash
 make migrate            # apply what is outstanding
